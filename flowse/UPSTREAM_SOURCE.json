@@ -1,0 +1,33 @@
+{
+  "name": "FlowSE",
+  "repository": "https://github.com/Honee-W/FlowSE.git",
+  "web_url": "https://github.com/honee-w/flowse",
+  "ref": "master",
+  "commit": "cfb81f171d804689bf7607afd0d12a6ee89de547",
+  "archive_url": "https://github.com/Honee-W/FlowSE/archive/cfb81f171d804689bf7607afd0d12a6ee89de547.tar.gz",
+  "raw_base_url": "https://raw.githubusercontent.com/Honee-W/FlowSE/cfb81f171d804689bf7607afd0d12a6ee89de547",
+  "patch": "flowse/patches/0001-ga-af-flowse-compatibility.patch",
+  "license_status": "permission_obtained",
+  "source_files": [
+    "model/__init__.py",
+    "model/cfm.py",
+    "model/model_utils.py",
+    "model/modules.py",
+    "model/backbones/dit.py",
+    "model/backbones/mmdit.py",
+    "model/backbones/unett.py",
+    "loader/dataloader.py",
+    "loader/datareader.py",
+    "utils/logger.py",
+    "utils/torch_stft.py",
+    "infer.py",
+    "train.py",
+    "infer.sh",
+    "train.sh",
+    "config/train.yaml",
+    "requirement.txt",
+    "vocos-mel-24khz/config.yaml",
+    "vocos-mel-24khz/README.md",
+    "Emilia_ZH_EN_pinyin/vocab.txt"
+  ]
+}

@@ -1,0 +1,1643 @@
+--- a/model/cfm.py
++++ b/model/cfm.py
+@@ -1,9 +1,6 @@
+ 
+ 
+ from __future__ import annotations
+-import sys
+-import os
+-sys.path.append(os.path.dirname(__file__))
+ from random import random
+ from typing import Callable
+ 
+@@ -12,7 +9,7 @@ import torch.nn.functional as F
+ from torch import nn
+ from torchdiffeq import odeint
+ 
+-from modules import MelSpec
++from .modules import MelSpec
+ from model.model_utils import (
+     default,
+     exists,
+@@ -27,23 +24,20 @@ class CFM(nn.Module):
+         self,
+         transformer: nn.Module,
+         sigma=0.0,
+-        odeint_kwargs: dict = dict(
+-            # atol = 1e-5,
+-            # rtol = 1e-5,
+-            method="euler"  # 'midpoint'
+-        ),
++        odeint_kwargs: dict | None = None,
+ 
+ 
+         audio_drop_prob=0.0,  
+         cond_drop_prob=0.0,
+         num_channels=None,
+         mel_spec_module: nn.Module | None = None,
+-        mel_spec_kwargs: dict = dict(),
+-        vocab_char_map: dict[str:int] | None = None,
++        mel_spec_kwargs: dict | None = None,
++        vocab_char_map: dict[str, int] | None = None,
+     ):
+         super().__init__()
+ 
+         # mel spec
++        mel_spec_kwargs = mel_spec_kwargs or {}
+         self.mel_spec = default(mel_spec_module, MelSpec(**mel_spec_kwargs))
+         num_channels = default(num_channels, self.mel_spec.n_mel_channels)
+         self.num_channels = num_channels
+@@ -61,7 +55,7 @@ class CFM(nn.Module):
+         self.sigma = sigma
+ 
+         # sampling related
+-        self.odeint_kwargs = odeint_kwargs
++        self.odeint_kwargs = odeint_kwargs or {"method": "euler"}
+ 
+         # vocab map for tokenization
+         self.vocab_char_map = vocab_char_map
+@@ -99,8 +93,7 @@ class CFM(nn.Module):
+ 
+         cond = cond.to(next(self.parameters()).dtype)
+ 
+-        batch, cond_seq_len, device = *cond.shape[:2], cond.device
+-        lens = torch.full((batch,), cond_seq_len, device=device, dtype=torch.long)
++        batch, device = cond.shape[0], cond.device
+ 
+         # text
+ 
+@@ -111,17 +104,12 @@ class CFM(nn.Module):
+                 text = list_str_to_tensor(text).to(device)
+             assert text.shape[0] == batch
+ 
+-        if exists(text):
+-            text_lens = (text != -1).sum(dim=-1)
+-            lens = torch.maximum(text_lens, lens)  # make sure lengths are at least those of the text characters
+-     
+-        step_cond = cond
+-        
+         mask = None
+ 
+         if no_ref_audio:
+             cond = torch.zeros_like(cond)
+ 
++        step_cond = cond
+ 
+         def fn(t, x):
+     
+@@ -157,8 +145,9 @@ class CFM(nn.Module):
+     def forward(
+         self,
+         inp: float["b n d"] | float["b nw"],  # mel or raw wave  # noqa: F722 
+-        clean: float["b n d"] | float["b nw"],
++        clean: float["b n d"] | float["b nw"],  # noqa: F722
+         text: int["b nt"] | list[str],  # noqa: F722
++        mel_lengths: torch.Tensor | None = None,
+     ):
+         '''
+         inp: noisy speech
+@@ -176,7 +165,7 @@ class CFM(nn.Module):
+             clean = clean.permute(0, 2, 1)
+             assert inp.shape[-1] == self.num_channels
+ 
+-        batch, _ , dtype, device, _ = *inp.shape[:2], inp.dtype, self.device, self.sigma
++        batch, seq_len, dtype, device = *inp.shape[:2], inp.dtype, self.device
+     
+         if isinstance(text, list):
+             if exists(self.vocab_char_map):
+@@ -213,16 +202,23 @@ class CFM(nn.Module):
+         else:
+             drop_text = False
+ 
++        mask = None
++        if mel_lengths is not None:
++            mask = torch.arange(seq_len, device=device).unsqueeze(0) < mel_lengths.unsqueeze(1)
++
+         pred = self.transformer(
+-            x=φ, cond=cond, text=text, time=time, drop_audio_cond=drop_audio_cond, drop_text=drop_text
++            x=φ,
++            cond=cond,
++            text=text,
++            time=time,
++            drop_audio_cond=drop_audio_cond,
++            drop_text=drop_text,
++            mask=mask,
+         )
+ 
+         # flow matching loss
+         loss = F.mse_loss(pred, flow, reduction="none")
++        if mask is not None:
++            loss = loss.masked_select(mask.unsqueeze(-1))
+ 
+         return loss.mean(), cond, pred
+-
+-
+-if __name__ == "__main__":
+-    model = CFM()
+-    
+\ No newline at end of file
+--- a/model/model_utils.py
++++ b/model/model_utils.py
+@@ -2,10 +2,6 @@ from __future__ import annotations
+ 
+ 
+ 
+-import os
+-import random
+-
+-
+ import torch
+ from torch.nn.utils.rnn import pad_sequence
+ 
+@@ -19,7 +15,7 @@ def default(v, d):
+ 
+ # simple utf-8 tokenizer, since paper went character based
+ def list_str_to_tensor(text: list[str], padding_value=-1) -> int["b nt"]:  # noqa: F722
+-    list_tensors = [torch.tensor([*bytes(t, "UTF-8")]) for t in text]  # ByT5 style
++    list_tensors = [torch.tensor([*bytes(t, "UTF-8")], dtype=torch.long) for t in text]  # ByT5 style
+     text = pad_sequence(list_tensors, padding_value=padding_value, batch_first=True)
+     return text
+ 
+@@ -30,15 +26,26 @@ def list_str_to_idx(
+     vocab_char_map: dict[str, int],  # {char: idx}
+     padding_value=-1,
+ ) -> int["b nt"]:  # noqa: F722
+-    list_idx_tensors = [torch.tensor([vocab_char_map.get(c, 0) for c in t]) for t in text]  # pinyin or char style
++    list_idx_tensors = [
++        torch.tensor([vocab_char_map.get(c, 0) for c in t], dtype=torch.long)
++        for t in text
++    ]
+     text = pad_sequence(list_idx_tensors, padding_value=padding_value, batch_first=True)
+     return text
+ 
+ 
+-# Get tokenizer
++def convert_text(text: str, tokenizer: str) -> str | list[str]:
++    """Apply the same text normalization used by the training dataset."""
++    if tokenizer == "pinyin":
++        from pypinyin import Style, pinyin
+ 
++        return ["".join(item) for item in pinyin(text, style=Style.TONE3)]
++    if tokenizer in {"char", "byte", "custom"}:
++        return text
++    raise ValueError(f"Unsupported tokenizer: {tokenizer}")
+ 
+-def get_tokenizer(dataset_name, tokenizer: str = "pinyin",tokenizer_path="Emilia_ZH_EN_pinyin/vocab.txt"):
++
++def get_tokenizer(tokenizer_path: str, tokenizer: str = "pinyin"):
+     """
+     tokenizer   - "pinyin" do g2p for only chinese characters, need .txt vocab_file
+                 - "char" for char-wise tokenizer, need .txt vocab_file
+@@ -48,25 +55,20 @@ def get_tokenizer(dataset_name, tokenizer: str = "pinyin",tokenizer_path="Emilia
+                 - if use "char", derived from unfiltered character & symbol counts of custom dataset
+                 - if use "byte", set to 256 (unicode byte range)
+     """
+-    if tokenizer in ["pinyin", "char"]:
++    if tokenizer in {"pinyin", "char", "custom"}:
+         with open(tokenizer_path, "r", encoding="utf-8") as f:
+             vocab_char_map = {}
+             for i, char in enumerate(f):
+-                vocab_char_map[char[:-1]] = i
++                vocab_char_map[char.rstrip("\r\n")] = i
+         vocab_size = len(vocab_char_map)
+-        assert vocab_char_map[" "] == 0, "make sure space is of idx 0 in vocab.txt, cuz 0 is used for unknown char"
++        if tokenizer in {"pinyin", "char"}:
++            assert vocab_char_map[" "] == 0, "space must be index 0 because it is also the unknown token"
+ 
+     elif tokenizer == "byte":
+         vocab_char_map = None
+         vocab_size = 256
+ 
+-    elif tokenizer == "custom":
+-        with open(dataset_name, "r", encoding="utf-8") as f:
+-            vocab_char_map = {}
+-            for i, char in enumerate(f):
+-                vocab_char_map[char[:-1]] = i
+-        vocab_size = len(vocab_char_map)
++    else:
++        raise ValueError(f"Unsupported tokenizer: {tokenizer}")
+ 
+     return vocab_char_map, vocab_size
+-
+-
+--- a/model/modules.py
++++ b/model/modules.py
+@@ -35,7 +35,7 @@ def get_bigvgan_mel_spectrogram(
+ 
+     if key not in mel_basis_cache:
+         mel = librosa_mel_fn(sr=target_sample_rate, n_fft=n_fft, n_mels=n_mel_channels, fmin=fmin, fmax=fmax)
+-        mel_basis_cache[key] = torch.from_numpy(mel).float().to(device)  # TODO: why they need .float()?
++        mel_basis_cache[key] = torch.from_numpy(mel).float().to(device)
+         hann_window_cache[key] = torch.hann_window(win_length).to(device)
+ 
+     mel_basis = mel_basis_cache[key]
+--- a/model/backbones/dit.py
++++ b/model/backbones/dit.py
+@@ -12,6 +12,7 @@ from __future__ import annotations
+ import torch
+ from torch import nn
+ import torch.nn.functional as F
++from torch.utils.checkpoint import checkpoint
+ 
+ from x_transformers.x_transformers import RotaryEmbedding
+ 
+@@ -58,7 +59,7 @@ class TextEmbedding(nn.Module):
+         # possible extra modeling
+         if self.extra_modeling:
+             # sinus pos emb
+-            batch_start = torch.zeros((batch,), dtype=torch.long)
++            batch_start = torch.zeros((batch,), dtype=torch.long, device=text.device)
+             pos_idx = get_pos_embed_indices(batch_start, seq_len, max_pos=self.precompute_max_pos)
+             text_pos_embed = self.freqs_cis[pos_idx]
+             text = text + text_pos_embed
+@@ -78,12 +79,19 @@ class InputEmbedding(nn.Module):
+         self.proj = nn.Linear(mel_dim * 2 + text_dim, out_dim)
+         self.conv_pos_embed = ConvPositionEmbedding(dim=out_dim)
+ 
+-    def forward(self, x: float["b n d"], cond: float["b n d"], text_embed: float["b n d"], drop_audio_cond=False):  # noqa: F722
++    def forward(
++        self,
++        x: torch.Tensor,
++        cond: torch.Tensor,
++        text_embed: torch.Tensor,
++        drop_audio_cond=False,
++        mask=None,
++    ):
+         if drop_audio_cond:  # cfg for cond audio
+             cond = torch.zeros_like(cond)
+ 
+         x = self.proj(torch.cat((x, cond, text_embed), dim=-1))
+-        x = self.conv_pos_embed(x) + x
++        x = self.conv_pos_embed(x, mask=mask) + x
+         return x
+ 
+ 
+@@ -155,7 +163,13 @@ class DiT(nn.Module):
+         # t: conditioning time, c: context (text + masked cond audio), x: noised input audio
+         t = self.time_embed(time)
+         text_embed = self.text_embed(text, seq_len, drop_text=drop_text)
+-        x = self.input_embed(x, cond, text_embed, drop_audio_cond=drop_audio_cond)
++        x = self.input_embed(
++            x,
++            cond,
++            text_embed,
++            drop_audio_cond=drop_audio_cond,
++            mask=mask,
++        )
+ 
+         rope = self.rotary_embed.forward_from_seq_len(seq_len)
+ 
+@@ -164,7 +178,14 @@ class DiT(nn.Module):
+ 
+         for block in self.transformer_blocks:
+             if self.checkpoint_activations:
+-                x = torch.utils.checkpoint.checkpoint(self.ckpt_wrapper(block), x, t, mask, rope)
++                x = checkpoint(
++                    self.ckpt_wrapper(block),
++                    x,
++                    t,
++                    mask,
++                    rope,
++                    use_reentrant=False,
++                )
+             else:
+                 x = block(x, t, mask=mask, rope=rope)
+ 
+--- a/model/backbones/mmdit.py
++++ b/model/backbones/mmdit.py
+@@ -42,7 +42,7 @@ class TextEmbedding(nn.Module):
+         text = self.text_embed(text)
+ 
+         # sinus pos emb
+-        batch_start = torch.zeros((text.shape[0],), dtype=torch.long)
++        batch_start = torch.zeros((text.shape[0],), dtype=torch.long, device=text.device)
+         batch_text_len = text.shape[1]
+         pos_idx = get_pos_embed_indices(batch_start, batch_text_len, max_pos=self.precompute_max_pos)
+         text_pos_embed = self.freqs_cis[pos_idx]
+@@ -61,12 +61,18 @@ class AudioEmbedding(nn.Module):
+         self.linear = nn.Linear(2 * in_dim, out_dim)
+         self.conv_pos_embed = ConvPositionEmbedding(out_dim)
+ 
+-    def forward(self, x: float["b n d"], cond: float["b n d"], drop_audio_cond=False):  # noqa: F722
++    def forward(
++        self,
++        x: torch.Tensor,
++        cond: torch.Tensor,
++        drop_audio_cond=False,
++        mask=None,
++    ):
+         if drop_audio_cond:
+             cond = torch.zeros_like(cond)
+         x = torch.cat((x, cond), dim=-1)
+         x = self.linear(x)
+-        x = self.conv_pos_embed(x) + x
++        x = self.conv_pos_embed(x, mask=mask) + x
+         return x
+ 
+ 
+@@ -130,7 +136,7 @@ class MMDiT(nn.Module):
+         # t: conditioning (time), c: context (text + masked cond audio), x: noised input audio
+         t = self.time_embed(time)
+         c = self.text_embed(text, drop_text=drop_text)
+-        x = self.audio_embed(x, cond, drop_audio_cond=drop_audio_cond)
++        x = self.audio_embed(x, cond, drop_audio_cond=drop_audio_cond, mask=mask)
+ 
+         seq_len = x.shape[1]
+         text_len = text.shape[1]
+--- a/model/backbones/unett.py
++++ b/model/backbones/unett.py
+@@ -61,7 +61,7 @@ class TextEmbedding(nn.Module):
+         # possible extra modeling
+         if self.extra_modeling:
+             # sinus pos emb
+-            batch_start = torch.zeros((batch,), dtype=torch.long)
++            batch_start = torch.zeros((batch,), dtype=torch.long, device=text.device)
+             pos_idx = get_pos_embed_indices(batch_start, seq_len, max_pos=self.precompute_max_pos)
+             text_pos_embed = self.freqs_cis[pos_idx]
+             text = text + text_pos_embed
+@@ -81,12 +81,19 @@ class InputEmbedding(nn.Module):
+         self.proj = nn.Linear(mel_dim * 2 + text_dim, out_dim)
+         self.conv_pos_embed = ConvPositionEmbedding(dim=out_dim)
+ 
+-    def forward(self, x: float["b n d"], cond: float["b n d"], text_embed: float["b n d"], drop_audio_cond=False):  # noqa: F722
++    def forward(
++        self,
++        x: torch.Tensor,
++        cond: torch.Tensor,
++        text_embed: torch.Tensor,
++        drop_audio_cond=False,
++        mask=None,
++    ):
+         if drop_audio_cond:  # cfg for cond audio
+             cond = torch.zeros_like(cond)
+ 
+         x = self.proj(torch.cat((x, cond, text_embed), dim=-1))
+-        x = self.conv_pos_embed(x) + x
++        x = self.conv_pos_embed(x, mask=mask) + x
+         return x
+ 
+ 
+@@ -178,7 +185,13 @@ class UNetT(nn.Module):
+         # t: conditioning time, c: context (text + masked cond audio), x: noised input audio
+         t = self.time_embed(time)
+         text_embed = self.text_embed(text, seq_len, drop_text=drop_text)
+-        x = self.input_embed(x, cond, text_embed, drop_audio_cond=drop_audio_cond)
++        x = self.input_embed(
++            x,
++            cond,
++            text_embed,
++            drop_audio_cond=drop_audio_cond,
++            mask=mask,
++        )
+ 
+         # postfix time t to input x, [b n d] -> [b n+1 d]
+         x = torch.cat([t.unsqueeze(1), x], dim=1)  # pack t to x
+--- a/loader/dataloader.py
++++ b/loader/dataloader.py
+@@ -1,25 +1,17 @@
+ import numpy as np
+-import numpy
+-import math
+-import soundfile as sf
+ import scipy.signal as sps
+-import librosa
+ import random
+ import torch.nn.functional as F
+ import torch
+-import torch as th
+ import torchaudio
+-import torch.utils.data as tud
+-from torch.utils.data import DataLoader, Dataset,SequentialSampler,Sampler
++import torch.distributed as dist
++from torch.utils.data import DataLoader, Dataset, SequentialSampler, Sampler
+ import multiprocessing as mp
+-from torch.utils.data.distributed import DistributedSampler
+-import yaml
+ import os
+-from pypinyin import pinyin, lazy_pinyin,Style
+ from tqdm import tqdm
+ import json
+-import sys
+-sys.path.append("../")
++
++from model.model_utils import convert_text
+ from model.modules import MelSpec
+ EPS = np.finfo(float).eps
+ 
+@@ -83,11 +75,14 @@ def parse_scp(scp, path_list,test=-1, split_token=" "):
+             total = 500
+             count = 0
+         for line in fid:
++            line = line.strip()
++            if not line or line.startswith("#"):
++                continue
+             if not test==-1:
+                 if count > total:
+                     break
+                 count += 1
+-            tmp = line.strip().split(split_token)
++            tmp = line.split() if split_token == " " else line.split(split_token)
+             if len(tmp) > 1:
+                 path_list.append({"inputs": tmp[0], "duration": float(tmp[1])})
+             else:
+@@ -257,6 +252,8 @@ class AutoDataset(Dataset):
+         probability=None,
+         snr_ranges=None,
+         scale_ranges=None,
++        mel_spec_kwargs=None,
++        tokenizer="pinyin",
+     ):
+         super(AutoDataset, self).__init__()
+ 
+@@ -270,6 +267,8 @@ class AutoDataset(Dataset):
+     
+         self.snr_ranges = snr_ranges
+         self.scale_ranges = scale_ranges
++        self.sample_rate = sample_rate
++        self.tokenizer = tokenizer
+         self.index = mgr.list()
+         pc_list = []
+         p = mp.Process(target=parse_scp, args=(clean_scp, self.clean_list))
+@@ -294,6 +293,10 @@ class AutoDataset(Dataset):
+         self.len_clean = len(self.clean_list)
+         self.len_regular_noise = len(self.regular_noise_list)
+         self.len_rir = len(self.rir_list)
++        if self.len_clean == 0:
++            raise ValueError(f"No clean utterances found in {clean_scp}")
++        if self.len_regular_noise == 0:
++            raise ValueError(f"No noise utterances found in {regular_noise_scp}")
+ 
+         self.index = self.clean_list
+         self.index *= repeat
+@@ -302,30 +305,39 @@ class AutoDataset(Dataset):
+             self.text_list = json.load(file)  
+     
+ 
+-        self.mel_spectrogram = MelSpec(
+-                    n_fft=1024,
+-                    hop_length=256,
+-                    win_length=1024,
+-                    n_mel_channels=100,
+-                    target_sample_rate=24000,
+-                    mel_spec_type='vocos',
+-                )
+-        self.randstates = [np.random.RandomState(idx) for idx in range(3000)]
+-        self.resampler = torchaudio.transforms.Resample(orig_freq=16000, new_freq=24000)
++        mel_spec_kwargs = mel_spec_kwargs or {
++            "n_fft": 1024,
++            "hop_length": 256,
++            "win_length": 1024,
++            "n_mel_channels": 100,
++            "target_sample_rate": 24000,
++            "mel_spec_type": "vocos",
++        }
++        self.mel_spectrogram = MelSpec(**mel_spec_kwargs)
++        self.frames_per_second = (
++            mel_spec_kwargs["target_sample_rate"] / mel_spec_kwargs["hop_length"]
++        )
++        self.resampler = torchaudio.transforms.Resample(
++            orig_freq=sample_rate,
++            new_freq=mel_spec_kwargs["target_sample_rate"],
++        )
+ 
+     def __len__(self):
+         return len(self.index)
+ 
+-    def name(self, path):
+-        return os.path.splitext(os.path.basename(path))[0]
+-
+-    def __next_probaiblity__(self):
+-        action = random.choices(self.probaction, self.probvalues)[0]
+-        return action
++    def __next_probability__(self, randstate):
++        probabilities = np.asarray(self.probvalues, dtype=np.float64)
++        if np.any(probabilities < 0) or probabilities.sum() <= 0:
++            raise ValueError(f"Invalid probability weights: {self.probvalues}")
++        probabilities /= probabilities.sum()
++        return randstate.choice(self.probaction, p=probabilities)
+ 
+     def __select_rand_number__(self, probabilities, randstate):
+         ranges = list(probabilities.keys())
+-        probs = list(probabilities.values())
++        probs = np.asarray(list(probabilities.values()), dtype=np.float64)
++        if np.any(probs < 0) or probs.sum() <= 0:
++            raise ValueError(f"Invalid probability weights: {probabilities}")
++        probs /= probs.sum()
+ 
+         selected_range = randstate.choice(ranges, p=probs)
+         start, end = map(int, selected_range.split("_to_"))
+@@ -335,97 +347,97 @@ class AutoDataset(Dataset):
+         return rand_number
+ 
+     def get_frame_len(self, index):
+-        
+-        return self.index[index]["duration"] * 24000 / 256
++        item = self.index[index]
++        if "duration" not in item:
++            raise ValueError("Every clean SCP entry must include duration in seconds")
++        return item["duration"] * self.frames_per_second
+ 
+ 
+     def __getitem__(self, index):
+         data_info = self.index[index]
+         clean_path = data_info["inputs"]
+-        # import pdb;pdb.set_trace()
+         item_key = os.path.splitext(os.path.basename(clean_path))[0]
+-        if not item_key in self.text_list.keys():
++        if item_key not in self.text_list:
+             text = ''
+         else:
+             text = self.text_list[item_key]
+ 
+ 
+-        clean = get_firstchannel_read(clean_path)
++        clean = get_firstchannel_read(clean_path, self.sample_rate)
+ 
+         chunk_length = clean.shape[-1]
+       
+-        randstate = self.randstates[(index + 11) % 3000]
++        randstate = np.random
+ 
++        choice = self.__next_probability__(randstate)
+         idx_noise1 = randstate.randint(0, self.len_regular_noise)
+-        idx_noise2 = randstate.randint(0, self.len_regular_noise)
+-        # Two different noise samples
+-        
+-        while idx_noise2 == idx_noise1:
+-            idx_noise2 = randstate.randint(0, self.len_regular_noise)
+-        idx_rir = randstate.randint(0, self.len_rir)
+-
+         noise1_path = self.regular_noise_list[idx_noise1]["inputs"]
+-        noise2_path = self.regular_noise_list[idx_noise2]["inputs"]
+-        rir_path = self.rir_list[idx_rir]["inputs"]
++        noise2_path = None
++        if choice in {"p2", "p4", "p6"}:
++            if self.len_regular_noise < 2:
++                raise ValueError(f"Mixing mode {choice} requires at least two noise files")
++            idx_noise2 = randstate.randint(0, self.len_regular_noise)
++            while idx_noise2 == idx_noise1:
++                idx_noise2 = randstate.randint(0, self.len_regular_noise)
++            noise2_path = self.regular_noise_list[idx_noise2]["inputs"]
+ 
+-        choice = randstate.uniform(0, 100)
++        rir_path = None
++        if choice in {"p3", "p4", "p5", "p6"}:
++            if self.len_rir == 0:
++                raise ValueError(f"Mixing mode {choice} requires at least one RIR file")
++            idx_rir = randstate.randint(0, self.len_rir)
++            rir_path = self.rir_list[idx_rir]["inputs"]
+ 
+         snr1 = self.__select_rand_number__(self.snr_ranges, randstate)
+         snr2 = self.__select_rand_number__(self.snr_ranges, randstate)
+         scale = self.__select_rand_number__(self.scale_ranges, randstate)
+ 
+-        choice = self.__next_probaiblity__()
+-        
+         if choice == 'p1':
+-            noise1 = get_firstchannel_read(noise1_path)
++            noise1 = get_firstchannel_read(noise1_path, self.sample_rate)
+             noise1 = pad(noise1, chunk_length, randstate)
+             inputs, labels = generate_data_one_noise(clean, noise1, snr1, scale)
+-            desc = f"p1|{self.name(clean_path)}|{self.name(noise1_path)}|{snr1}|{scale}"
+         elif choice == 'p2':
+-            noise1 = get_firstchannel_read(noise1_path)
+-            noise2 = get_firstchannel_read(noise2_path)
++            noise1 = get_firstchannel_read(noise1_path, self.sample_rate)
++            noise2 = get_firstchannel_read(noise2_path, self.sample_rate)
+             noise1 = pad(noise1, chunk_length, randstate)
+             noise2 = pad(noise2, chunk_length, randstate)
+             inputs, labels = generate_data_two_noise(
+                 clean, noise1, noise2, snr1, snr2, scale
+             )
+-            desc = f"p2|{self.name(clean_path)}|{self.name(noise1_path)}|{self.name(noise2_path)}|{snr1}_{snr2}|{scale}"
+         elif choice == 'p3':
+-            noise1 = get_firstchannel_read(noise1_path)
++            noise1 = get_firstchannel_read(noise1_path, self.sample_rate)
+             noise1 = pad(noise1, chunk_length, randstate)
+-            rir = audioread(rir_path)
++            rir = audioread(rir_path, self.sample_rate)
+             inputs, labels = generate_reverdata_one_reverb_noise(
+                 clean, noise1, rir, snr1, scale
+             )
+-            desc = f"p3|{self.name(clean_path)}|{self.name(noise1_path)}|{self.name(rir_path)}|{snr1}|{scale}"
+         elif choice == 'p4':
+-            noise1 = get_firstchannel_read(noise1_path)
+-            noise2 = get_firstchannel_read(noise2_path)
++            noise1 = get_firstchannel_read(noise1_path, self.sample_rate)
++            noise2 = get_firstchannel_read(noise2_path, self.sample_rate)
+             noise1 = pad(noise1, chunk_length, randstate)
+             noise2 = pad(noise2, chunk_length, randstate)
+-            rir = audioread(rir_path)
++            rir = audioread(rir_path, self.sample_rate)
+             inputs, labels = generate_reverdata_two_reverb_noise(
+                 clean, noise1, noise2, rir, snr1, snr2, scale
+             )
+-            desc = f"p4|{self.name(clean_path)}|{self.name(noise1_path)}|{self.name(noise2_path)}|{self.name(rir_path)}|{snr1}_{snr2}|{scale}"
+         elif choice == 'p5':
+-            noise1 = get_firstchannel_read(noise1_path)
++            noise1 = get_firstchannel_read(noise1_path, self.sample_rate)
+             noise1 = pad(noise1, chunk_length, randstate)
+-            rir = audioread(rir_path)
++            rir = audioread(rir_path, self.sample_rate)
+             inputs, labels = generate_reverdata_one_noise(
+                 clean, noise1, rir, snr1, scale
+             )
+-            desc = f"p5|{self.name(clean_path)}|{self.name(noise1_path)}|{self.name(rir_path)}|{snr1}|{scale}"
+-        else:
+-            noise1 = get_firstchannel_read(noise1_path)
+-            noise2 = get_firstchannel_read(noise2_path)
++        elif choice == 'p6':
++            noise1 = get_firstchannel_read(noise1_path, self.sample_rate)
++            noise2 = get_firstchannel_read(noise2_path, self.sample_rate)
+             noise1 = pad(noise1, chunk_length, randstate)
+             noise2 = pad(noise2, chunk_length, randstate)
+-            rir = audioread(rir_path)
++            rir = audioread(rir_path, self.sample_rate)
+             inputs, labels = generate_reverdata_one_reverb_noise_one_noise(
+                 clean, noise1, noise2, rir, snr1, snr2, scale
+             )
+-            desc = f"p6|{self.name(clean_path)}|{self.name(noise1_path)}|{self.name(noise2_path)}|{self.name(rir_path)}|{snr1}_{snr2}|{scale}"
++        else:
++            raise ValueError(f"Unsupported mixing mode: {choice}")
+ 
+ 
+         inputs = inputs.unsqueeze(0)
+@@ -439,36 +451,17 @@ class AutoDataset(Dataset):
+         
+         label_mel_spec = self.mel_spectrogram(labels)
+         label_mel_spec = label_mel_spec.squeeze(0)  # '1 d t -> d t'
+-        raw_text = text
+-        text_list = pinyin(text, style=Style.TONE3)
+-        text = [''.join(item) for item in text_list]
+-
+-        egs = {"noisy":inputs,"clean":labels,"label_mel_spec": label_mel_spec, "noisy_mel_spec": noisy_mel_spec, "label_path":clean_path,"text": text ,"raw_text":raw_text}
++        text = convert_text(text, self.tokenizer)
++
++        egs = {
++            "label_mel_spec": label_mel_spec,
++            "noisy_mel_spec": noisy_mel_spec,
++            "label_path": clean_path,
++            "text": text,
++        }
+         return egs
+ 
+ 
+-def worker(target_list, result_list, start, end, chunk_length, sample_rate):
+-    for item in target_list[start:end]:
+-        duration = item["duration"]
+-        length = duration * sample_rate
+-        if length < chunk_length:
+-            sample_index = -1
+-            if length * 2 < chunk_length and length * 4 > chunk_length:
+-                sample_index = -2
+-            elif length * 2 > chunk_length:
+-                sample_index = -1
+-            else:
+-                continue
+-            result_list.append([item, sample_index])
+-        else:
+-            sample_index = 0
+-            while sample_index + chunk_length <= length:
+-                result_list.append([item, sample_index])
+-                sample_index += chunk_length
+-            if sample_index < length:
+-                result_list.append([item, int(length - chunk_length)])
+-
+-
+ def collate_fn(batch):
+     label_mel_specs = [item["label_mel_spec"].squeeze(0) for item in batch]
+     label_mel_lengths = torch.LongTensor([spec.shape[-1] for spec in label_mel_specs])
+@@ -527,6 +520,11 @@ class DynamicBatchSampler(Sampler[list[int]]):
+         self.sampler = sampler
+         self.frames_threshold = frames_threshold
+         self.max_samples = max_samples
++        self.random_seed = 0 if random_seed is None else random_seed
++        self.drop_last = drop_last
++        self.epoch = 0
++        self.num_replicas = dist.get_world_size() if dist.is_available() and dist.is_initialized() else 1
++        self.rank = dist.get_rank() if dist.is_available() and dist.is_initialized() else 0
+         
+         # The difference between adjacent frames within a batch. 
+         # If the difference is too large, the smaller one will be padded with many frames in the collate_fn, which may cause out-of-memory issues.
+@@ -544,7 +542,6 @@ class DynamicBatchSampler(Sampler[list[int]]):
+         batch = []
+         batch_frames = 0
+         
+-        # import pdb;pdb.set_trace()
+         
+         for idx, frame_len in tqdm(
+             indices, desc=f"Creating dynamic batches with {frames_threshold} audio frames per gpu"
+@@ -555,7 +552,7 @@ class DynamicBatchSampler(Sampler[list[int]]):
+             else:
+                 frame_diff = float('inf')  # If the current batch is empty, set a large difference to ensure the first frame is added
+             
+-            if batch_frames + frame_len <= self.frames_threshold and (max_samples == 0 or len(batch) < max_samples) and frame_diff <= self.max_diff:
++            if batch_frames + frame_len <= self.frames_threshold and (self.max_samples == 0 or len(batch) < self.max_samples) and frame_diff <= self.max_diff:
+                 batch.append(idx)
+                 batch_frames += frame_len
+             else:
+@@ -572,18 +569,36 @@ class DynamicBatchSampler(Sampler[list[int]]):
+             batches.append(batch)
+ 
+         del indices
++        if not batches:
++            raise ValueError(
++                "Dynamic batching produced no batches; increase batch_size (the Mel-frame threshold)"
++            )
++        self.batches = batches
+ 
+-       
+-        random.seed(random_seed)
+-        random.shuffle(batches)
++    def _rank_batches(self):
++        batches = list(self.batches)
++        random.Random(self.random_seed + self.epoch).shuffle(batches)
++        if self.num_replicas == 1:
++            return batches
+ 
+-        self.batches = batches
++        if self.drop_last:
++            total_size = len(batches) - (len(batches) % self.num_replicas)
++            batches = batches[:total_size]
++        else:
++            padding_size = (-len(batches)) % self.num_replicas
++            if padding_size:
++                repeats = (padding_size + len(batches) - 1) // len(batches)
++                batches.extend((batches * repeats)[:padding_size])
++        return batches[self.rank :: self.num_replicas]
+ 
+     def __iter__(self):
+-        return iter(self.batches)
++        return iter(self._rank_batches())
+ 
+     def __len__(self):
+-        return len(self.batches)
++        return len(self._rank_batches())
++
++    def set_epoch(self, epoch):
++        self.epoch = epoch
+ 
+ def make_auto_loader(
+     clean_scp,
+@@ -598,6 +613,8 @@ def make_auto_loader(
+     probability=None,
+     snr_ranges=None,
+     scale_ranges=None,
++    mel_spec_kwargs=None,
++    tokenizer="pinyin",
+ ):
+     dataset = AutoDataset(
+         clean_scp=clean_scp,
+@@ -610,20 +627,21 @@ def make_auto_loader(
+         probability=probability,
+         snr_ranges=snr_ranges,
+         scale_ranges=scale_ranges,
++        mel_spec_kwargs=mel_spec_kwargs,
++        tokenizer=tokenizer,
+     )
+     
+     
+     sampler = SequentialSampler(dataset)
+     batch_sampler = DynamicBatchSampler(
+-        sampler, batch_size, max_samples=max_samples, random_seed=2102, drop_last=True
++        sampler, batch_size, max_samples=max_samples, random_seed=2102, drop_last=False
+     )
+     loader = DataLoader(
+         dataset,
+         collate_fn=collate_fn,
+         num_workers=num_workers,
+         pin_memory=True,
+-        persistent_workers=True,
++        persistent_workers=num_workers > 0,
+         batch_sampler=batch_sampler,
+     )
+-    return sampler,loader
+-
++    return batch_sampler, loader
+--- a/loader/datareader.py
++++ b/loader/datareader.py
+@@ -4,7 +4,7 @@ import soundfile as sf
+ 
+ import torch
+ import json
+-import os
++from pathlib import Path
+ 
+ class DataReader(object):
+     def __init__(self,
+@@ -12,7 +12,7 @@ class DataReader(object):
+                  mix_dir,
+                  mix_fs=16000):
+ 
+-        with open(mix_json,'r') as f:
++        with open(mix_json, "r", encoding="utf-8") as f:
+             self.mix_json =  json.load(f) 
+         self.utt = list(self.mix_json.keys())
+         
+@@ -20,7 +20,12 @@ class DataReader(object):
+         self.mix_fs = mix_fs
+ 
+     def extract_feature(self, utt):
+-        mix_path = os.path.join(self.mix_dir,utt) + '.wav'
++        relative_path = Path(utt)
++        if relative_path.is_absolute() or ".." in relative_path.parts:
++            raise ValueError(f"Unsafe utterance id: {utt}")
++        if relative_path.suffix.lower() != ".wav":
++            relative_path = Path(f"{relative_path}.wav")
++        mix_path = Path(self.mix_dir) / relative_path
+         text = self.mix_json[utt]
+         mix_data = self.get_firstchannel_read(mix_path, self.mix_fs).astype(np.float32)
+ 
+@@ -58,4 +63,3 @@ class DataReader(object):
+ 
+ 
+ 
+-
+--- a/utils/logger.py
++++ b/utils/logger.py
+@@ -18,10 +18,13 @@ def get_logger(
+ 
+     logger = logging.getLogger(name)
+     logger.setLevel(logging.INFO)
++    logger.propagate = False
++    if logger.handlers:
++        return logger
+     if file:
+         # both stdout & file
+         logger.addHandler(get_handler(logging.FileHandler(name)))
+-        logger.addHandler(logging.StreamHandler())
++        logger.addHandler(get_handler(logging.StreamHandler()))
+     else:
+-        logger.addHandler(logging.StreamHandler())
+-    return logger
+\ No newline at end of file
++        logger.addHandler(get_handler(logging.StreamHandler()))
++    return logger
+--- a/utils/torch_stft.py
++++ b/utils/torch_stft.py
+@@ -1,8 +1,6 @@
+ import torch
+ import torch as th
+ import torch.nn as nn
+-import torch.nn.functional as tf
+-import torchaudio
+ 
+ 
+ 
+@@ -55,4 +53,3 @@ class STFT(nn.Module):
+             inp, self.nfft, self.hop, self.win, self.window_synthesis.to(real.device)
+         )
+ 
+-
+--- a/infer.py
++++ b/infer.py
+@@ -1,26 +1,24 @@
++import argparse
+ import os
+-import torch
++import time
++import warnings
++from pathlib import Path
++
++import librosa
++import numpy as np
+ import soundfile as sf
++import torch
+ import torchaudio
+-
+-from vocos import Vocos
+-from loader.datareader import DataReader
+-
+-
+ import yaml
+-import time
+-import argparse
++from huggingface_hub import hf_hub_download, snapshot_download
+ from tqdm import tqdm
+-from pathlib import Path
+-import numpy as np
++from vocos import Vocos
++
++from loader.datareader import DataReader
++from model import CFM, DiT
++from model.model_utils import convert_text, get_tokenizer
+ 
+ EPS = np.finfo(float).eps
+-import torch
+-import librosa
+-import scipy
+-from model.model_utils import get_tokenizer
+-from model import DiT,CFM
+-import warnings
+ warnings.filterwarnings("ignore", category=FutureWarning)
+ 
+ def load_vocoder(vocoder_name="vocos", is_local=False, local_path="", device=None, hf_cache_dir=None):
+@@ -28,8 +26,11 @@ def load_vocoder(vocoder_name="vocos", is_local=False, local_path="", device=Non
+         # vocoder = Vocos.from_pretrained("charactr/vocos-mel-24khz").to(device)
+         if is_local:
+             print(f"Load vocos from local path {local_path}")
+-            config_path = f"{local_path}/config.yaml"
+-            model_path = f"{local_path}/pytorch_model.bin"
++            config_path = Path(local_path) / "config.yaml"
++            model_path = Path(local_path) / "pytorch_model.bin"
++            missing = [str(path) for path in (config_path, model_path) if not path.is_file()]
++            if missing:
++                raise FileNotFoundError(f"Missing local Vocos files: {', '.join(missing)}")
+         else:
+             print("Download Vocos from huggingface charactr/vocos-mel-24khz")
+             repo_id = "charactr/vocos-mel-24khz"
+@@ -50,8 +51,8 @@ def load_vocoder(vocoder_name="vocos", is_local=False, local_path="", device=Non
+     elif vocoder_name == "bigvgan":
+         try:
+             from third_party.BigVGAN import bigvgan
+-        except ImportError:
+-            print("You need to follow the README to init submodule and change the BigVGAN source code.")
++        except ImportError as exc:
++            raise RuntimeError("BigVGAN requires the optional third_party/BigVGAN checkout") from exc
+         if is_local:
+             """download from https://huggingface.co/nvidia/bigvgan_v2_24khz_100band_256x/tree/main"""
+             vocoder = bigvgan.BigVGAN.from_pretrained(local_path, use_cuda_kernel=False)
+@@ -61,6 +62,8 @@ def load_vocoder(vocoder_name="vocos", is_local=False, local_path="", device=Non
+ 
+         vocoder.remove_weight_norm()
+         vocoder = vocoder.eval().to(device)
++    else:
++        raise ValueError(f"Unsupported vocoder: {vocoder_name}")
+     return vocoder
+ 
+ def normalize(audio, target_level=-25):
+@@ -72,10 +75,10 @@ def normalize(audio, target_level=-25):
+ 
+ def run(args):
+     with open(args.conf, "r") as f:
+-        conf = yaml.load(f, Loader=yaml.FullLoader)
+-    tokenizer = conf['model']['tokenizer']
+-    tokenizer_path = conf['model']['tokenizer_path']
+-    conf = conf['infer']
++        root_conf = yaml.safe_load(f)
++    tokenizer = root_conf['model']['tokenizer']
++    tokenizer_path = root_conf['model']['tokenizer_path']
++    conf = root_conf['infer']
+     
+     device = torch.device(
+         "cuda" if conf["test"]["use_cuda"] and torch.cuda.is_available() else "cpu"
+@@ -83,7 +86,11 @@ def run(args):
+ 
+     checkpoint_dir = Path(conf["test"]["checkpoint"])
+     cpt_fname = checkpoint_dir / conf["test"]["pt_name"]
+-    ckpt = torch.load(cpt_fname, map_location=device)
++    if not cpt_fname.is_file():
++        raise FileNotFoundError(
++            f"Checkpoint not found: {cpt_fname}. Download the released checkpoint and update infer.test in the config."
++        )
++    ckpt = torch.load(cpt_fname, map_location=device, weights_only=True)
+     print("checkpoint: ", cpt_fname)
+     print("epoch: ", ckpt["epoch"])
+     print("last modified: ", time.ctime(os.path.getmtime(cpt_fname)))
+@@ -97,52 +104,57 @@ def run(args):
+         mel_spec_kwargs=conf['nnet_conf']['mel_spec'],vocab_char_map=vocab_char_map).eval().to(device)
+     nnet.load_state_dict(ckpt["model_state_dict"])
+ 
+-    if not os.path.exists(conf["save"]["dir"]):
+-        os.makedirs(conf["save"]["dir"])
++    save_dir = Path(conf["save"]["dir"])
++    save_dir.mkdir(parents=True, exist_ok=True)
+     vocoder_local_path = conf['nnet_conf']['vocoder']['local_path']
+     is_local = conf['nnet_conf']['vocoder']['is_local']
+-    vocoder = load_vocoder(vocoder_name='vocos', is_local=is_local, local_path=vocoder_local_path,device=device)
++    vocoder_name = conf['nnet_conf']['mel_spec']['mel_spec_type']
++    vocoder = load_vocoder(
++        vocoder_name=vocoder_name,
++        is_local=is_local,
++        local_path=vocoder_local_path,
++        device=device,
++    )
+ 
+-    Resampler =  torchaudio.transforms.Resample(orig_freq = 16000, new_freq = 24000).to(device)
++    input_sample_rate = conf["datareader"]["mix_fs"]
++    model_sample_rate = conf['nnet_conf']['mel_spec']['target_sample_rate']
++    output_sample_rate = conf["save"]["fs"]
++    resampler = None
++    if input_sample_rate != model_sample_rate:
++        resampler = torchaudio.transforms.Resample(
++            orig_freq=input_sample_rate,
++            new_freq=model_sample_rate,
++        ).to(device)
+     data_reader = DataReader(**conf["datareader"])
++    sample_kwargs = {
++        "steps": int(conf["test"].get("steps", 32)),
++        "cfg_strength": float(conf["test"].get("cfg_strength", 1.0)),
++    }
+     
+     with torch.no_grad():
+ 
+         for egs in tqdm(data_reader):
+-            if egs["utt_id"][-4:] != ".wav":
+-                egs["utt_id"] = egs["utt_id"] + ".wav"
+-
+             mix = egs["mix"].contiguous().to(device)
+-            text =  egs["text"]
+-            mix = Resampler(mix)
++            text = convert_text(egs["text"], tokenizer)
++            if resampler is not None:
++                mix = resampler(mix)
+             
+             if conf['test']['cond_type'] == 'noisy':
+             
+-                output,_ = nnet.sample(cond = mix,text=[text])
++                output, _ = nnet.sample(cond=mix, text=[text], **sample_kwargs)
+             elif conf['test']['cond_type'] == 'wotext':
+-                output,_ = nnet.sample(cond = mix,text=[" "],drop_text=True)
+-
+-
+-            if egs["utt_id"].find("/") != -1:
+-                if not os.path.exists(
+-                    os.path.join(
+-                        conf["save"]["dir"],
+-                        egs["utt_id"][
+-                            egs["utt_id"].find("/") + 1 : egs["utt_id"].rfind("/")
+-                        ],
+-                    )
+-                ):
+-                    os.makedirs(
+-                        os.path.join(
+-                            conf["save"]["dir"],
+-                            egs["utt_id"][
+-                                egs["utt_id"].find("/")
+-                                + 1 : egs["utt_id"].rfind("/")
+-                            ],
+-                        )
+-                    )
+-                if egs["utt_id"].find("/") == 0:
+-                    egs["utt_id"] = egs["utt_id"][1:]
++                output, _ = nnet.sample(cond=mix, text=[" "], drop_text=True, **sample_kwargs)
++            else:
++                raise ValueError("infer.test.cond_type must be 'noisy' or 'wotext'")
++
++            utt_id = egs["utt_id"]
++            if not utt_id.lower().endswith(".wav"):
++                utt_id += ".wav"
++            relative_path = Path(utt_id)
++            if relative_path.is_absolute() or ".." in relative_path.parts:
++                raise ValueError(f"Unsafe utterance id: {utt_id}")
++            output_path = save_dir / relative_path
++            output_path.parent.mkdir(parents=True, exist_ok=True)
+                     
+             output = output.transpose(-1,-2)
+             output = output.to(torch.float32)
+@@ -150,12 +162,16 @@ def run(args):
+             generated_wave = generated_wave.squeeze().cpu().numpy()
+             generated_wave = normalize(generated_wave)
+             
+-            generated_wave = librosa.resample(generated_wave,orig_sr=24000,target_sr=16000)
+-            # quit()
++            if model_sample_rate != output_sample_rate:
++                generated_wave = librosa.resample(
++                    generated_wave,
++                    orig_sr=model_sample_rate,
++                    target_sr=output_sample_rate,
++                )
+             sf.write(
+-                os.path.join(conf["save"]["dir"], egs["utt_id"]),
++                output_path,
+                 generated_wave,
+-                16000,
++                output_sample_rate,
+             )
+ 
+        
+--- a/train.py
++++ b/train.py
+@@ -1,55 +1,41 @@
+-import sys
+-import time
+-import yaml
++import argparse
++import math
++import os
+ import pprint
+ import random
+-import argparse
+-import numpy as np
++import time
++from datetime import datetime
+ from pathlib import Path
++
++import numpy as np
+ import torch
+-import torch.nn as nn
+ import torch.backends.cudnn as cudnn
+ import torch.distributed as dist
+-
+-
++import yaml
++from torch.optim import AdamW
++from torch.optim.lr_scheduler import LinearLR, SequentialLR
+ from torch.nn.parallel import DistributedDataParallel
+ from torch.nn.utils import clip_grad_norm_
+-import torchaudio
+-from torch.optim.lr_scheduler import LinearLR, SequentialLR
+-from torch.optim import AdamW
+-from accelerate import Accelerator
+-from utils.logger import get_logger
+-
+-
+-from model import DiT,CFM
+-from model.model_utils import get_tokenizer
+-
+ 
+-import os
+ from loader.dataloader import make_auto_loader
+-
+-
+-
+-import warnings
+-
+-warnings.filterwarnings("ignore")
+-
+-from torch import autograd
+-
+-torch.autograd.set_detect_anomaly(True)
+-
+-from datetime import datetime
++from model import CFM, DiT
++from model.model_utils import get_tokenizer
++from utils.logger import get_logger
+ 
+ 
+ def make_dataloader(opt):
+-    
++    dataloader_setting = {
++        **opt["datasets"]["dataloader_setting"],
++        "mel_spec_kwargs": opt["model"]["mel_spec"],
++        "tokenizer": opt["model"]["tokenizer"],
++    }
+     train_sampler, train_loader = make_auto_loader(
+         **opt["datasets"]["train"],
+-        **opt["datasets"]["dataloader_setting"],
++        **dataloader_setting,
+     )
+     val_sampler, val_loader = make_auto_loader(
+         **opt["datasets"]["val"],
+-        **opt["datasets"]["dataloader_setting"],
++        **dataloader_setting,
+     )
+     return train_sampler, train_loader, val_sampler, val_loader
+ 
+@@ -78,9 +64,9 @@ def save_checkpoint(
+     }
+     cpt_name = "{0}.pt.tar".format("best" if best else "last")
+     torch.save(cpt, checkpoint_dir / cpt_name)
+-    if not logger is None:
++    if logger is not None:
+         logger.info(f"save checkpoint {cpt_name}")
+-    if not step is None:
++    if step is not None:
+         torch.save(cpt, checkpoint_dir / f"{epoch}_{step}.pt.tar")
+     elif save_period > 0 and epoch % save_period == 0:
+         torch.save(cpt, checkpoint_dir / f"{epoch}.pt.tar")
+@@ -88,23 +74,6 @@ def save_checkpoint(
+     
+ 
+ 
+-def make_optimizer(params, opt):
+-    supported_optimizer = {
+-        "sgd": torch.optim.SGD,  # momentum, weight_decay, lr
+-        "rmsprop": torch.optim.RMSprop,  # momentum, weight_decay, lr
+-        "adam": torch.optim.Adam,  # weight_decay, lr
+-        "adadelta": torch.optim.Adadelta,  # weight_decay, lr
+-        "adagrad": torch.optim.Adagrad,  # lr, lr_decay, weight_decay
+-        "adamax": torch.optim.Adamax,  # lr, weight
+-    }
+-    if opt["optim"]["name"] not in supported_optimizer:
+-        raise ValueError("Now only support optimizer {}".format(opt["optim"]["name"]))
+-    optimizer = supported_optimizer[opt["optim"]["name"]](
+-        params, **opt["optim"]["optimizer_kwargs"]
+-    )
+-    return optimizer
+-
+-
+ def load_obj(obj, device):
+     """
+     Offload tensor object in obj to cuda device
+@@ -123,11 +92,11 @@ def load_obj(obj, device):
+         return cuda(obj)
+ 
+ 
+-def reduce_mean(tensor, world_size):
+-    rt = tensor.clone()
+-    dist.all_reduce(rt, op=dist.ReduceOp.SUM)
+-    rt /= world_size
+-    return rt
++def reduce_weighted_mean(value, weight):
++    weight = weight.to(device=value.device, dtype=value.dtype)
++    stats = torch.stack((value.detach() * weight, weight))
++    dist.all_reduce(stats, op=dist.ReduceOp.SUM)
++    return stats[0] / stats[1], stats[1]
+ 
+ 
+ class AverageMeter(object):
+@@ -179,14 +148,7 @@ def get_learning_rate(optimizer):
+     return optimizer.param_groups[0]["lr"]
+ 
+ 
+-def adjust_learning_rate(optimizer, epoch, conf):
+-    """Sets the learning rate to the initial LR decayed by 10 every 30 epochs"""
+-    lr = args.lr * (0.1 ** (epoch // 30))
+-    for param_group in optimizer.param_groups:
+-        param_group["lr"] = lr
+-
+-
+-def train_one_epcoh(
++def train_one_epoch(
+     train_loader,
+     nnet,
+     optimizer,
+@@ -195,7 +157,6 @@ def train_one_epcoh(
+     local_rank,
+     conf,
+     device,
+-    world_size,
+     logger,
+ ):
+     if local_rank == 0:
+@@ -204,26 +165,16 @@ def train_one_epcoh(
+     batch_time = AverageMeter("Time", ":6.3f")
+     data_time = AverageMeter("Data", ":6.3f")
+     losses = AverageMeter("Loss", ":.4f")
+-    sisnr = AverageMeter("sisnr", ":.4f")
+-    cmse = AverageMeter("cmse", ":.4f")
+-    cost = AverageMeter("Cost", ":.4f")
+-    crossentropy = AverageMeter("Crossentropy", ":.4f")
+     progress = ProgressMeter(
+         len(train_loader),
+-        [
+-            batch_time,
+-            data_time,
+-            losses,
+-            sisnr,
+-            cmse,
+-            cost,
+-            crossentropy,
+-        ],
++        [batch_time, data_time, losses],
+         prefix="Epoch: [{}]".format(epoch),
+         logger=logger,
+     )
+ 
+     nnet.train()
++    grad_accumulation_steps = max(1, int(conf["optim"]["grad_accumulation_steps"]))
++    optimizer.zero_grad(set_to_none=True)
+ 
+     end = time.time()
+     for i, egs in enumerate(train_loader):
+@@ -235,19 +186,24 @@ def train_one_epcoh(
+         label = egs["label_mel"].transpose(-1,-2)
+         text = egs["text"]
+     
+-        loss, _, _ = nnet(inp=noisy, clean=label,text=text)
+-    
+-        torch.distributed.barrier()
+-        reduced_loss = reduce_mean(loss, world_size)
+-        losses.update(reduced_loss.item(), noisy.size(0))
+-        
+-        optimizer.zero_grad()
+-    
+-        loss.backward()
+-
+-        clip_grad_norm_(nnet.parameters(), conf["optim"]["gradient_clip"])
+-        optimizer.step()
+-        scheduler.step()
++        loss, _, _ = nnet(
++            inp=noisy,
++            clean=label,
++            text=text,
++            mel_lengths=egs["label_mel_lengths"],
++        )
++        loss_weight = egs["label_mel_lengths"].sum() * label.size(-1)
++        reduced_loss, reduced_weight = reduce_weighted_mean(loss, loss_weight)
++        losses.update(reduced_loss.item(), reduced_weight.item())
++
++        (loss / grad_accumulation_steps).backward()
++
++        should_step = (i + 1) % grad_accumulation_steps == 0 or (i + 1) == len(train_loader)
++        if should_step:
++            clip_grad_norm_(nnet.parameters(), conf["optim"]["gradient_clip"])
++            optimizer.step()
++            scheduler.step()
++            optimizer.zero_grad(set_to_none=True)
+         batch_time.update(time.time() - end)
+         end = time.time()
+ 
+@@ -260,33 +216,27 @@ def train_one_epcoh(
+         progress.display(len(train_loader))
+ 
+ 
+-def validate_one_epcoh(
++def validate_one_epoch(
+     val_loader,
+     nnet,
+     local_rank,
+     conf,
+     device,
+-    world_size,
+     logger,
+ ):
+     if local_rank == 0:
+         logger.info("set validate mode")
+     batch_time = AverageMeter("Time", ":6.3f")
+     losses = AverageMeter("Loss", ":.4f")
+-    sisnr = AverageMeter("sisnr", ":.4f")
+-    cmse = AverageMeter("cmse", ":.4f")
+-    cost = AverageMeter("Cost", ":.4f")
+-    crossentropy = AverageMeter("Crossentropy", ":.4f")
+     progress = ProgressMeter(
+         len(val_loader),
+-        [batch_time, losses, sisnr, cmse, cost, crossentropy],
++        [batch_time, losses],
+         prefix="Validation: ",
+         logger=logger,
+     )
+ 
+     nnet.eval()
+ 
+-    resampler = torchaudio.transforms.Resample(orig_freq = 16000, new_freq = 24000).to(torch.device("cuda", local_rank))
+     with torch.no_grad():
+         end = time.time()
+         for i, egs in enumerate(val_loader):
+@@ -298,13 +248,17 @@ def validate_one_epcoh(
+             label = egs["label_mel"].transpose(-1,-2)
+             text = egs["text"]
+             
+-            loss, _, _ = nnet.module.forward(inp=noisy, text=text, clean=label)
+-          
+-            torch.distributed.barrier()
++            loss, _, _ = nnet(
++                inp=noisy,
++                text=text,
++                clean=label,
++                mel_lengths=egs["label_mel_lengths"],
++            )
+ 
+-            reduced_loss = reduce_mean(loss, world_size)
++            loss_weight = egs["label_mel_lengths"].sum() * label.size(-1)
++            reduced_loss, reduced_weight = reduce_weighted_mean(loss, loss_weight)
+ 
+-            losses.update(reduced_loss.item(), noisy.size(0))
++            losses.update(reduced_loss.item(), reduced_weight.item())
+ 
+             # measure elapsed time
+             batch_time.update(time.time() - end)
+@@ -323,13 +277,13 @@ def main_worker(local_rank, args):
+     torch.cuda.set_device(local_rank)
+     device = torch.device("cuda", local_rank)
+     cudnn.benchmark = True
+-    world_size = dist.get_world_size()
+     
+ 
+ 
+ 
++
+     with open(args.conf, "r") as f:
+-        conf = yaml.load(f, Loader=yaml.FullLoader)
++        conf = yaml.safe_load(f)
+ 
+     random.seed(conf['train']['seed'])
+     np.random.seed(conf['train']['seed'])
+@@ -343,8 +297,9 @@ def main_worker(local_rank, args):
+             if conf["logger"]["path"] is None
+             else conf["logger"]["path"]
+         ),
+-        file=True,
++        file=local_rank == 0,
+     )
++    logger.disabled = local_rank != 0
+     if local_rank == 0:
+         logger.info("Arguments in args:\n{}".format(pprint.pformat(vars(args))))
+         logger.info("Arguments in yaml:\n{}".format(pprint.pformat(conf)))
+@@ -376,6 +331,7 @@ def main_worker(local_rank, args):
+     start_epoch = 0
+     end_epoch = conf["train"]["epoch"]
+ 
++    cpt = None
+     if conf["train"]["resume"]:
+         if not Path(conf["train"]["resume"]).exists():
+             raise FileNotFoundError(
+@@ -383,7 +339,7 @@ def main_worker(local_rank, args):
+         
+ 
+         else:
+-            cpt = torch.load(conf["train"]["resume"], map_location="cpu")
++            cpt = torch.load(conf["train"]["resume"], map_location="cpu", weights_only=True)
+             if conf["train"]["rm_stft"]:
+                 for i in list(cpt["model_state_dict"]):
+                     if i[: len("stft")] == "stft" or i[: len("istft")] == "istft":
+@@ -398,10 +354,8 @@ def main_worker(local_rank, args):
+             nnet.load_state_dict(
+                 cpt["model_state_dict"], strict=conf["train"]["strict"]
+             )
+-           
+-            nnet = nnet.cpu() if device == torch.device("cpu") else nnet.cuda()
+-    else:
+-        nnet = nnet.cpu() if device == torch.device("cpu") else nnet.cuda()
++
++    nnet = nnet.to(device)
+ 
+     nnet = DistributedDataParallel(
+         nnet,
+@@ -409,30 +363,21 @@ def main_worker(local_rank, args):
+         output_device=local_rank,
+         find_unused_parameters=True,
+     )
+-   
+-    '''
+-    accelerator = Accelerator(
+-            log_with=logger if logger == "wandb" else None,
+-            gradient_accumulation_steps=conf['optim']['grad_accumulation_steps'],
+-    )
+-    '''
+-    
+     optimizer = AdamW(nnet.parameters(), lr=conf['optim']['lr'])
+-    
+-    '''
+-    nnet, optimizer = accelerator.prepare(nnet, optimizer)
+-    accelerator.even_batches = False
+-    '''
+-    
+-    
++
+     train_sampler, train_loader, val_sampler, val_loader = make_dataloader(conf)
+- 
+-    warmup_steps = (
+-        # conf['optim']['warm_up_step'] * accelerator.num_processes
+-        conf['optim']['warm_up_step'] * world_size
+-    )  
+ 
+-    total_steps = len(train_loader) * conf['optim']['max_epoch'] / conf['optim']['grad_accumulation_steps']
++    grad_accumulation_steps = max(1, int(conf['optim']['grad_accumulation_steps']))
++    updates_per_epoch = math.ceil(len(train_loader) / grad_accumulation_steps)
++    scheduler_epochs = end_epoch
++    if conf["train"]["resume"] and conf["train"]["reset_lr"]:
++        scheduler_epochs = end_epoch - start_epoch
++    total_steps = updates_per_epoch * scheduler_epochs
++    warmup_steps = int(conf['optim']['warm_up_step'])
++    if total_steps <= warmup_steps:
++        raise ValueError(
++            f"warm_up_step ({warmup_steps}) must be smaller than total optimizer steps ({total_steps})"
++        )
+     decay_steps = total_steps - warmup_steps
+     logger.info(f"warmup_steps:{warmup_steps}")
+     logger.info(f"decay_steps:{decay_steps}")
+@@ -448,24 +393,21 @@ def main_worker(local_rank, args):
+             raise FileNotFoundError(
+                 f"Could not find resume checkpoint: {conf['train']['resume']}"
+             )
+-        cpt = torch.load(conf["train"]["resume"], map_location=device)
++        cpt = torch.load(conf["train"]["resume"], map_location=device, weights_only=True)
+         
+         optimizer.load_state_dict(cpt["optim_state_dict"])
+-        scheduler.load_state_dict(cpt["scheduler_state_dict"])  
+-        
+-    
+-    '''
+-    train_loader, scheduler = accelerator.prepare(
+-        train_loader, scheduler
+-    ) 
+-    '''
++        scheduler.load_state_dict(cpt["scheduler_state_dict"])
+     
+     best_loss = 10000
++    if cpt is not None and conf["train"].get("reload_best_loss", True):
++        best_loss = cpt.get("best_loss", best_loss)
+     no_impr = 0
+ 
+     for epoch in range(start_epoch, end_epoch):
++        train_sampler.set_epoch(epoch)
++        val_sampler.set_epoch(epoch)
+         logger.info(f"epoch:{epoch} train")
+-        train_one_epcoh(
++        train_one_epoch(
+             train_loader,
+             nnet,
+             optimizer,
+@@ -474,17 +416,15 @@ def main_worker(local_rank, args):
+             local_rank,
+             conf,
+             device,
+-            world_size,
+             logger,
+         )
+         logger.info(f"epoch:{epoch} val")
+-        cv_loss = validate_one_epcoh(
++        cv_loss = validate_one_epoch(
+             val_loader,
+             nnet,
+             local_rank,
+             conf,
+             device,
+-            world_size,
+             logger,
+         )
+         logger.info(f"epoch:{epoch} val done")
+@@ -525,12 +465,14 @@ def main_worker(local_rank, args):
+                 logger=logger,
+             )
+ 
+-        if no_impr == conf["train"]["early_stop"]:
++        if no_impr >= conf["train"]["early_stop"]:
+             if local_rank == 0:
+                 logger.info(f"stop training cause no impr for {no_impr:d} epochs")
+             break
+         logger.info(f"epoch:{epoch} done")
+ 
++    dist.destroy_process_group()
++
+ 
+ def run(args):
+     local_rank = int(os.environ["LOCAL_RANK"])
+--- a/infer.sh
++++ b/infer.sh
+@@ -1,7 +1,5 @@
++#!/usr/bin/env bash
++set -euo pipefail
+ 
+-config_path=config/train.yaml
+-CUDA_VISIBLE_DEVICES=3 \
+-python \
+-    ./infer.py \
+-    -conf ${config_path}
+-
++config_path="${1:-config/train.yaml}"
++python infer.py -conf "${config_path}"
+--- a/train.sh
++++ b/train.sh
+@@ -1,11 +1,15 @@
++#!/usr/bin/env bash
++set -euo pipefail
+ 
+-CUDA_VISIBLE_DEVICES=1 \
+-torchrun \
+-    --nnodes=1 \
+-    --nproc_per_node=1 \
+-    --master_addr=localhost \
+-    --master_port=29525 \
+-    ./train.py \
+-    -conf config/train.yaml
+-
++config_path="${1:-config/train.yaml}"
++num_gpus="${NUM_GPUS:-1}"
++master_addr="${MASTER_ADDR:-localhost}"
++master_port="${MASTER_PORT:-29525}"
+ 
++torchrun \
++  --nnodes=1 \
++  --nproc_per_node="${num_gpus}" \
++  --master_addr="${master_addr}" \
++  --master_port="${master_port}" \
++  train.py \
++  -conf "${config_path}"
+--- a/config/train.yaml
++++ b/config/train.yaml
+@@ -2,7 +2,7 @@
+ train:
+   epoch: 2000
+   early_stop: 5
+-  checkpoint: &checkpoint exp/test
++  checkpoint: exp/test
+   resume: null
+   reload_best_loss: True
+   reset_lr: True
+@@ -36,12 +36,11 @@ model: &model_conf
+     mel_spec_type: vocos  # 'vocos' or 'bigvgan'
+   vocoder:
+     is_local: True  # use local offline ckpt or not
+-    local_path: vocos-mel-24khz  # local vocoder path
++    local_path: pretrainmodel/vocos-mel-24khz  # local vocoder path
+ 
+ optim:
+   lr: 7.5e-6
+   warm_up_step: 2500
+-  max_epoch: 10
+   grad_accumulation_steps: 1
+   gradient_clip: 5.0
+ 
+@@ -92,10 +91,12 @@ datasets:
+ infer:
+ 
+   test:
+-    checkpoint: ckpts
++    checkpoint: pretrainmodel/flowse-wenetspeech4tts-Premium
+     cond_type: noisy
+     pt_name: best.pt.tar
+     use_cuda: True
++    steps: 32
++    cfg_strength: 1.0  # verify against the training drop probabilities used by your checkpoint
+ 
+   save:
+     dir: test_out
+@@ -108,4 +109,3 @@ infer:
+ 
+   nnet_conf:
+     *model_conf
+-
+

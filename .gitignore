@@ -1,0 +1,38 @@
+__pycache__/
+*.py[cod]
+*.so
+.Python
+.venv/
+venv/
+.env
+.idea/
+.vscode/
+.ruff_cache/
+.pytest_cache/
+
+# Generated training and inference artifacts
+ckpts/
+checkpoints/
+!checkpoints/
+checkpoints/*
+!checkpoints/README.md
+data/
+artifacts/
+**/artifacts/
+exp/
+test_out/
+eval_results/
+pretrainmodel/
+# Keep the public model-layout instructions while ignoring downloaded weights.
+!pretrainmodel/
+pretrainmodel/*
+!pretrainmodel/README.md
+runs/
+*.wav
+*.pt
+*.pt.tar
+*.ckpt
+
+# Downloaded vocoder weights (keep the checked-in config and README)
+flowse/vocos-mel-24khz/pytorch_model.bin
+# The checked-in flowse/ directory is source code and must remain tracked.

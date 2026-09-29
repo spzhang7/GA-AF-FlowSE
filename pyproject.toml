@@ -1,0 +1,11 @@
+[tool.ruff]
+target-version = "py310"
+exclude = [
+    "Emilia_ZH_EN_pinyin",
+    "static",
+    "vocos-mel-24khz",
+]
+
+[tool.ruff.lint]
+select = ["E", "F"]
+ignore = ["E501"]

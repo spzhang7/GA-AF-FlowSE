@@ -1,0 +1,30 @@
+cff-version: 1.2.0
+title: "Forward-Process Reinforcement Learning for Flow-Matching Speech Enhancement"
+message: "If you use GA-AF-FlowSE, please cite this repository and the FlowSE baseline."
+type: software
+authors:
+  - family-names: Zhang
+    given-names: Shuaipeng
+  - family-names: Chen
+    given-names: Hang
+  - family-names: Du
+    given-names: Jun
+  - family-names: Wang
+    given-names: Qing
+  - family-names: Siniscalchi
+    given-names: Sabato Marco
+  - family-names: Quan
+    given-names: Zihao
+  - family-names: Cai
+    given-names: Zijing
+  - family-names: Dong
+    given-names: Boyuan
+version: 0.1.0
+date-released: 2026-09-24
+license: MIT
+repository-code: "https://github.com/spzhang7/GA-AF-FlowSE"
+keywords:
+  - speech enhancement
+  - flow matching
+  - AdvantageFlow
+  - reinforcement learning

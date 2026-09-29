@@ -1,0 +1,161 @@
+run:
+  mode: pilot
+  experiment_kind: libritts_dns_l16_k8_sft20k_base
+  protocol_version: speech_advantageflow_libritts_dns10s_sft20k_l16_k8_5000step_v1
+  startup_validation: lightweight
+  seed: 260521
+  deterministic: true
+  conditions_per_step: 16
+  optimizer_steps: 5000
+  authorizes_full_training: false
+  # Optional: set true only when exact deterministic CUDA kernels are required.
+  require_cublas_workspace_config: false
+
+flowse_config: configs/flowse/flowse_libritts_sft20k_wotext.yaml
+dnsmos_official_dir: pretrainmodel/DNSMOS-official
+output_root: artifacts/af/speech_advantageflow_libritts_dns10s_sft20k_5000step
+
+conditioning: {mode: wotext, use_text: false, drop_text: true}
+
+parallel_rollout:
+  enabled: true
+  world_size: 4
+  device_ids: [0, 1, 2, 3]
+  worker_startup_timeout_seconds: 3600
+  worker_task_timeout_seconds: 7200
+
+# Claim role-specific peak budgets before step 0 so later jobs cannot consume them.
+cuda_memory_reservation:
+  enabled: true
+  coordinator_target_reserved_gib: 32.0
+  worker_target_reserved_gib: 8.0
+  minimum_driver_free_gib: 2.0
+  allocation_chunk_gib: 4.0
+  require_target: true
+
+training_reward:
+  name: flowse_grpo_public_composite
+  component_normalization: frozen_std
+  weights: {dnsmos: 0.6, speaker: 1.0, speechbertscore: 1.0}
+  frozen_component_stds: {dnsmos: 0.07032371343108539, speaker: 0.13865593039460408, speechbertscore: 0.09550272361009968}
+  calibration:
+    # Keep the audited DNS10s reward definition fixed across AF/GRPO bases.
+    report_path: runs/calibration/libritts_dns10s_composite/calibration_report.json
+    source_nfe: 10
+    std_ddof: 0
+    dnsmos_divisor: 4.0
+
+composite_reward_evaluators:
+  device: cuda
+  speaker:
+    backend: modelscope_speaker_verification
+    model_id: iic/speech_eres2net_sv_zh-cn_16k-common
+    revision: v1.0.5
+    local_model_dir: pretrainmodel/speech_eres2net_sv_zh-cn_16k-common
+  speechbertscore:
+    repo_id: microsoft/wavlm-large
+    revision: c1423ed94bb01d80a3f5ce5bc39f6026a0f4828c
+    local_model_dir: pretrainmodel/wavlm-large
+    local_files_only: true
+    layer: 14
+    reference_cache_size: 64
+
+data:
+  train_manifest: artifacts/af/manifests/libritts_dns10s/libritts_dns10s_train_exposures.json
+  evaluation_manifest: artifacts/af/manifests/libritts_dns10s/libritts_dns10s_validation.json
+  noisy_dir: data/libritts_dns10s/audio/noisy
+  clean_dir: data/libritts_dns10s/audio/clean
+  order_seed: 260810
+  preflight:
+    expected_train_utterances: 80000
+    expected_evaluation_utterances: 512
+    require_single_coverage: true
+
+rollout:
+  solver: euler
+  candidates_per_condition: 8
+  training_nfe: 10
+  evaluation_nfe: 32
+  cfg_strength: 0.0
+  latent_seed_base: 1700100
+
+length_adaptive_microbatching:
+  mode: quadratic_mel_frame_budget
+  reference_mel_frames: 960
+  reference_batch_size: 8
+  minimum_size: 1
+
+advantage:
+  normalization: global_complete_LxK
+  clip: 1.0
+  minimum_global_scale: 1.0e-8
+
+lora:
+  rank: 32
+  alpha: 64.0
+  dropout: 0.0
+  initialization_seed: 32001
+  expected_modules: 132
+  target_patterns:
+    - '^transformer_blocks\.[0-9]+\.attn\.(to_q|to_k|to_v|to_out\.0)$'
+    - '^transformer_blocks\.[0-9]+\.ff\.ff\.(0\.0|2)$'
+  shared_initial_snapshot:
+    path: artifacts/shared_initial_lora/seed_260521.pt
+    create_if_missing: true
+
+loss:
+  gamma_mode: constant_1p1
+  lambda_reference: 0.001
+  paired_fidelity_anchor: false
+  curvature_margin: 1.0e-4
+  time_minimum: 0.0
+  time_maximum: 1.0
+  microbatch_size: 8
+  draw_seed_base: 61000
+
+optimizer:
+  type: AdamW
+  learning_rate: 2.0e-4
+  betas: [0.9, 0.999]
+  epsilon: 1.0e-8
+  weight_decay: 0.01
+  gradient_clip_norm: 5.0
+  schedule: linear_decay
+  schedule_total_steps: 5000
+  warmup_steps: 0
+
+ema: {decay: 0.9}
+normalization: {target_dbfs: -25.0, peak_ceiling: 0.99, output_subtype: PCM_16}
+
+evaluation:
+  run_initial: true
+  interval_steps: 1000
+  primary_checkpoint_step: 5000
+  policy: ema
+  latent_seed_base: 2700100
+  paired_metrics: true
+  fidelity:
+    # Optional evaluation-only metrics. Training does not require the
+    # private Gate-A evaluator lock; enable after supplying your own config.
+    enabled: false
+
+artifacts:
+  keep_training_audio: false
+  audit_audio_candidates_per_step: 2
+  checkpoint_interval: 250
+
+pilot_decision:
+  dnsmos_ovrl_minimum_gain: 0.10
+  require_ci_positive: true
+  bootstrap_seed: 41123
+  bootstrap_samples: 5000
+  confidence: 0.95
+  safety:
+    dnsmos_sig: -0.03
+    speaker_similarity: -0.02
+    eres2net_speaker_similarity: -0.02
+    speechbertscore: -0.005
+    stoi: -0.005
+    pesq_wb: -0.10
+    wer: 0.02
+

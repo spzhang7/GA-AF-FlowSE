@@ -1,0 +1,84 @@
+run:
+  mode: sampling_diagnostic
+  name: grpo_matched_latent_sampling_diagnostic_2gpu
+  policy_state: released_base_lora_disabled
+  seed: 260801
+  deterministic: true
+
+flowse_config: configs/flowse/flowse_voicebank_wotext.yaml
+dnsmos_official_dir: pretrainmodel/DNSMOS-official
+output_root: artifacts/grpo/grpo_matched_latent_sampling_diagnostic_2gpu
+conditioning: {mode: wotext, use_text: false, drop_text: true}
+
+data:
+  train_manifest: artifacts/manifests/voicebank_train_16k.json
+  noisy_dir: data/voicebank_demand/noisy
+  clean_dir: data/voicebank_demand/clean
+  selection_seed: 58001
+
+diagnostic:
+  utterance_count: 32
+  initial_latents_per_utterance: 8
+  brownian_continuations_per_latent: 4
+  ode_controls_per_latent: 1
+  repeat_score_audits_per_utterance: 1
+  near_zero_reward_std: 1.0e-6
+
+sampler:
+  direction: 0_to_1
+  nfe: 10
+  diffusion: 0.4
+  window_size: 2
+  window_starts: [1, 2, 3]
+  cfg_strength: 0.0
+  latent_seed_base: 82000
+  brownian_seed_base: 83000
+
+resources:
+  world_size: 2
+  # Physical GPUs are selected at launch with CUDA_VISIBLE_DEVICES=0,3.
+  # Inside that process they are remapped to logical CUDA devices 0 and 1.
+  device_ids: [0, 1]
+  cpu_threads_per_worker: 2
+  torch_interop_threads_per_worker: 1
+  enforce_cpu_affinity: true
+
+artifacts:
+  keep_all_audio: false
+  audit_wavs_per_utterance: 2
+
+normalization: {target_dbfs: -25.0, peak_ceiling: 0.99, output_subtype: PCM_16}
+
+training_reward:
+  name: flowse_grpo_public_composite
+  component_normalization: frozen_std
+  weights: {dnsmos: 0.6, speaker: 1.0, speechbertscore: 1.0}
+  frozen_component_stds: {dnsmos: 0.07032371343108539, speaker: 0.13865593039460408, speechbertscore: 0.09550272361009968}
+  calibration:
+    report_path: artifacts/flowse_grpo_calibrate_composite/calibration_report.json
+    source_nfe: 10
+    std_ddof: 0
+    dnsmos_divisor: 4.0
+
+composite_reward_evaluators:
+  device: cuda
+  speaker:
+    backend: modelscope_speaker_verification
+    model_id: iic/speech_eres2net_sv_zh-cn_16k-common
+    revision: v1.0.5
+    local_model_dir: pretrainmodel/speech_eres2net_sv_zh-cn_16k-common
+  speechbertscore:
+    repo_id: microsoft/wavlm-large
+    revision: c1423ed94bb01d80a3f5ce5bc39f6026a0f4828c
+    local_model_dir: pretrainmodel/wavlm-large
+    local_files_only: true
+    layer: 14
+    reference_cache_size: 64
+
+evaluation:
+  paired_metrics: true
+  fidelity:
+    # The frozen train manifest is intentionally transcript-free.  Content and
+    # speaker stability use SpeechBERTScore and ERes2Net in this diagnostic;
+    # ASR/WER remains a held-out evaluation metric.
+    enabled: false

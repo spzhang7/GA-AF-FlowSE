@@ -1,0 +1,115 @@
+run:
+  mode: smoke
+  protocol_version: speech_advantageflow_audio_only_v1_smoke
+  seed: 260521
+  startup_validation: lightweight
+  # Smoke runs are portable across CUDA/PyTorch builds. Enable deterministic
+  # kernels explicitly for a hardware-specific reproduction.
+  deterministic: false
+  conditions_per_step: 2
+  optimizer_steps: 2
+  authorizes_full_training: false
+
+flowse_config: configs/flowse/flowse_libritts_sft20k_wotext.yaml
+dnsmos_official_dir: pretrainmodel/DNSMOS-official
+output_root: artifacts/af/speech_advantageflow_smoke
+
+conditioning: {mode: wotext, use_text: false, drop_text: true}
+
+training_reward:
+  name: flowse_grpo_public_composite
+  component_normalization: frozen_std
+  weights: {dnsmos: 0.6, speaker: 1.0, speechbertscore: 1.0}
+  frozen_component_stds: {dnsmos: 0.07032371343108539, speaker: 0.13865593039460408, speechbertscore: 0.09550272361009968}
+  calibration:
+    report_path: runs/calibration/libritts_dns10s_composite/calibration_report.json
+    source_nfe: 10
+    std_ddof: 0
+    dnsmos_divisor: 4.0
+
+composite_reward_evaluators:
+  device: cuda
+  speaker:
+    backend: modelscope_speaker_verification
+    model_id: iic/speech_eres2net_sv_zh-cn_16k-common
+    revision: v1.0.5
+    local_model_dir: pretrainmodel/speech_eres2net_sv_zh-cn_16k-common
+  speechbertscore:
+    repo_id: microsoft/wavlm-large
+    revision: c1423ed94bb01d80a3f5ce5bc39f6026a0f4828c
+    local_model_dir: pretrainmodel/wavlm-large
+    local_files_only: true
+    layer: 14
+    reference_cache_size: 64
+
+data:
+  train_manifest: artifacts/af/manifests/libritts_dns10s/libritts_dns10s_smoke_train.json
+  evaluation_manifest: artifacts/af/manifests/libritts_dns10s/libritts_dns10s_smoke_validation.json
+  noisy_dir: data/libritts_dns10s/audio/noisy
+  clean_dir: data/libritts_dns10s/audio/clean
+  order_seed: 260810
+
+rollout:
+  solver: euler
+  candidates_per_condition: 4
+  training_nfe: 10
+  evaluation_nfe: 32
+  cfg_strength: 0.0
+  latent_seed_base: 1700100
+
+advantage:
+  normalization: global_complete_LxK
+  clip: 1.0
+  minimum_global_scale: 1.0e-8
+
+lora:
+  rank: 32
+  alpha: 64.0
+  dropout: 0.0
+  initialization_seed: 32001
+  expected_modules: 132
+  target_patterns:
+    - '^transformer_blocks\.[0-9]+\.attn\.(to_q|to_k|to_v|to_out\.0)$'
+    - '^transformer_blocks\.[0-9]+\.ff\.ff\.(0\.0|2)$'
+
+loss:
+  gamma_mode: constant_1p1
+  lambda_reference: 0.001
+  paired_fidelity_anchor: false
+  curvature_margin: 1.0e-4
+  time_minimum: 0.0
+  time_maximum: 1.0
+  microbatch_size: 1
+  draw_seed_base: 61000
+
+optimizer:
+  type: AdamW
+  learning_rate: 1.0e-4
+  betas: [0.9, 0.999]
+  epsilon: 1.0e-8
+  weight_decay: 0.01
+  gradient_clip_norm: 5.0
+  schedule: linear_decay
+  warmup_steps: 0
+
+ema:
+  decay: 0.9
+
+normalization:
+  target_dbfs: -25.0
+  peak_ceiling: 0.99
+  output_subtype: PCM_16
+
+evaluation:
+  run_initial: true
+  interval_steps: 2
+  policy: ema
+  latent_seed_base: 2700100
+  paired_metrics: true
+  fidelity:
+    enabled: false
+
+artifacts:
+  keep_training_audio: false
+  checkpoint_interval: 1
+

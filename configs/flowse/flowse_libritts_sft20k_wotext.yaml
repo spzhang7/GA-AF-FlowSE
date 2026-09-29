@@ -1,0 +1,42 @@
+model: &model_conf
+  tokenizer: pinyin
+  tokenizer_path: flowse/Emilia_ZH_EN_pinyin/vocab.txt
+  audio_drop_prob: 0
+  cond_drop_prob: 0
+  arch:
+    dim: 1024
+    depth: 22
+    heads: 16
+    ff_mult: 2
+    text_dim: 512
+    conv_layers: 4
+    checkpoint_activations: false
+  mel_spec:
+    target_sample_rate: 24000
+    n_mel_channels: 100
+    hop_length: 256
+    win_length: 1024
+    n_fft: 1024
+    mel_spec_type: vocos
+  vocoder:
+    is_local: true
+    local_path: checkpoints/vocos-mel-24khz
+
+infer:
+  test:
+    checkpoint: checkpoints/flowse/libritts_sft20k
+    pt_name: checkpoint_step_020000.pt
+    use_cuda: true
+    cond_type: wotext
+    steps: 32
+    cfg_strength: 0.0
+  save:
+    dir: runs/flowse/upstream_parity_wotext_sft20k
+    fs: 16000
+  datareader:
+    mix_json: data/manifests/rl_validation_gate_a.json
+    mix_dir: data/voicebank_demand/noisy_trainset_28spk_wav
+    mix_fs: 16000
+  nnet_conf:
+    *model_conf
+

@@ -1,0 +1,80 @@
+run:
+  mode: smoke
+  name: grpo_libritts_dns10s_sft20k_4gpu_production_geometry_smoke
+  seed: 260521
+  deterministic: true
+  collections: 1
+
+comparison:
+  setting: controlled_cfg0_eval_nfe32
+  policy_kind: grpo_online
+  data_domain: libritts_dns10s_v1
+  budget_role: implementation_and_peak_memory_smoke
+  smoke_geometry: production_dns10s
+
+flowse_config: configs/flowse/flowse_libritts_sft20k_wotext.yaml
+dnsmos_official_dir: pretrainmodel/DNSMOS-official
+output_root: artifacts/grpo/grpo_libritts_dns10s_sft20k_4gpu_production_geometry_smoke
+conditioning: {mode: wotext, use_text: false, drop_text: true}
+
+data:
+  train_manifest: artifacts/af/manifests/libritts_dns10s/libritts_dns10s_train_exposures.json
+  validation_manifest: artifacts/af/manifests/libritts_dns10s/libritts_dns10s_smoke_validation.json
+  official_test_manifest: artifacts/af/manifests/libritts_dns10s/dns2020_official_test_all.json
+  noisy_dir: data/libritts_dns10s/audio/noisy
+  clean_dir: data/libritts_dns10s/audio/clean
+  order_seed: 260810
+
+collection: {prompts_per_mini_batch: 4, mini_batch_repeats: 1, group_size: 10, optimizer_updates: 4, microbatch_size: 4, batch_semantics: full_buffer_4update_gradaccum}
+sampler: {direction: 0_to_1, diffusion: 0.4, window_size: 2, nfe_minimum: 10, nfe_maximum: 10, start_minimum: 1, start_maximum: 3, nfe_window_sampling_scope: group, cfg_strength: 0.0, window_seed_base: 71000, latent_seed_base: 72000, brownian_seed_base: 73000}
+advantage: {normalization: within_group, std_correction: 0, epsilon: 1.0e-8, clip: null, zero_std_action: discard_group}
+objective: {ratio: plain, logprob_reduction: mean_valid, kl_reduction: mean_valid, clip_epsilon: 0.2, kl_beta: 0.01, log_ratio_clamp: 20.0, loss_dt_scaling: false}
+
+lora:
+  rank: 32
+  alpha: 64.0
+  dropout: 0.0
+  initialization_seed: 32001
+  expected_modules: 132
+  target_patterns:
+    - '^transformer_blocks\.[0-9]+\.attn\.(to_q|to_k|to_v|to_out\.0)$'
+    - '^transformer_blocks\.[0-9]+\.ff\.ff\.(0\.0|2)$'
+  shared_initial_snapshot: {path: artifacts/shared_initial_lora/seed_260521.pt, create_if_missing: true, expected_state_sha256: null}
+
+optimizer: {type: AdamW, learning_rate: 2.0e-4, betas: [0.9, 0.999], epsilon: 1.0e-8, weight_decay: 0.01, gradient_clip_norm: 5.0, schedule: linear_decay, warmup_steps: 0, schedule_total_steps: 4}
+ema: {enabled: false}
+resources: {rollout_world_size: 4, device_ids: [0, 1, 2, 3], trainer_device_id: 0, accumulate_across_resume: true}
+# Peak-memory reservation is a formal profiling option, not a smoke
+# prerequisite.  Enable it only on the author's 4-GPU profiling setup.
+cuda_memory_reservation: {enabled: false}
+artifacts: {keep_training_audio: false, audit_audio_candidates_per_collection: 2, keep_validation_audio: false}
+
+training_reward:
+  name: flowse_grpo_public_composite
+  component_normalization: frozen_std
+  weights: {dnsmos: 0.6, speaker: 1.0, speechbertscore: 1.0}
+  frozen_component_stds: {dnsmos: 0.07032371343108539, speaker: 0.13865593039460408, speechbertscore: 0.09550272361009968}
+  calibration: {report_path: artifacts/af/libritts_dns10s_calibration_audit_8192/calibration_report.json, source_nfe: 10, std_ddof: 0, dnsmos_divisor: 4.0}
+composite_reward_evaluators:
+  device: cuda
+  speaker: {backend: modelscope_speaker_verification, model_id: iic/speech_eres2net_sv_zh-cn_16k-common, revision: v1.0.5, local_model_dir: pretrainmodel/speech_eres2net_sv_zh-cn_16k-common}
+  speechbertscore: {repo_id: microsoft/wavlm-large, revision: c1423ed94bb01d80a3f5ce5bc39f6026a0f4828c, local_model_dir: pretrainmodel/wavlm-large, local_files_only: true, layer: 14, reference_cache_size: 64}
+normalization: {target_dbfs: -25.0, peak_ceiling: 0.99, output_subtype: PCM_16}
+
+evaluation:
+  nfe: 32
+  cfg_strength: 0.0
+  milestone_basis: collection_fraction
+  selection_milestones: [0, 100]
+  run_at_milestones: true
+  latent_seed_base: 2700100
+  paired_metrics: true
+  # Optional evaluation-only fidelity metrics; disabled for the portable smoke.
+  fidelity: {enabled: false}
+  best_safe:
+    bootstrap_seed: 41123
+    bootstrap_samples: 2000
+    confidence: 0.95
+    safety: {dnsmos_sig: -0.03, speaker_similarity: -0.02, eres2net_speaker_similarity: -0.02, speechbertscore: -0.005, stoi: -0.005, pesq_wb: -0.05, wer: 0.02}
+
+implementation_choices: {cfg_strength: public_reproduction_choice, ppo_clip_epsilon: public_reproduction_choice, reference_kl_beta: public_reproduction_choice, logprob_reduction: public_reproduction_choice, kl_reduction: public_reproduction_choice, advantage_std_correction: public_reproduction_choice, nfe_window_sampling_scope: public_reproduction_choice, batch_semantics: flow_grpo_full_buffer_reference, optimizer: public_reproduction_choice, lora_targets: public_reproduction_choice}

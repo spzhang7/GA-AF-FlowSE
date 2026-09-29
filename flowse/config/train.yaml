@@ -1,0 +1,111 @@
+
+train:
+  epoch: 2000
+  early_stop: 5
+  checkpoint: exp/test
+  resume: null
+  reload_best_loss: True
+  reset_lr: True
+  strict: True
+  rm_stft: False
+  save_period: 1
+  seed: 1234
+
+
+#
+model: &model_conf
+  tokenizer: pinyin
+  tokenizer_path: Emilia_ZH_EN_pinyin/vocab.txt
+  audio_drop_prob: 0
+  cond_drop_prob: 0
+
+  arch:
+    dim: 1024
+    depth: 22
+    heads: 16
+    ff_mult: 2
+    text_dim: 512
+    conv_layers: 4
+    checkpoint_activations: False  # recompute activations and save memory for extra compute
+  mel_spec:
+    target_sample_rate: 24000
+    n_mel_channels: 100
+    hop_length: 256
+    win_length: 1024
+    n_fft: 1024
+    mel_spec_type: vocos  # 'vocos' or 'bigvgan'
+  vocoder:
+    is_local: True  # use local offline ckpt or not
+    local_path: pretrainmodel/vocos-mel-24khz  # local vocoder path
+
+optim:
+  lr: 7.5e-6
+  warm_up_step: 2500
+  grad_accumulation_steps: 1
+  gradient_clip: 5.0
+
+
+
+logger:
+  path:
+  print_freq: 100
+
+
+datasets:
+
+  train:
+    clean_scp : datalist/train/clean_cv.scp
+    regular_noise_scp : datalist/train/noise_cv.scp
+    rir_scp: datalist/train/rir_cv.scp
+    text_scp: datalist/train/text_cv.json
+
+  val:
+    clean_scp : datalist/train/clean_cv.scp
+    regular_noise_scp : datalist/train/noise_cv.scp
+    rir_scp: datalist/train/rir_cv.scp
+    text_scp: datalist/train/text_cv.json
+
+  dataloader_setting:
+    repeat: 1 
+    batch_size: 6010
+    max_samples: 64
+    num_workers: 16
+    sample_rate: 16000
+    probability:
+      p1: 75
+      p2: 25
+
+    snr_ranges:
+      "-5_to_0": 0.05
+      "0_to_5": 0.3
+      "5_to_10": 0.45
+      "10_to_20": 0.2
+    scale_ranges:
+      "-35_to_-15": 1.0
+    
+
+
+########################################################
+#############       test and eval   ####################
+########################################################
+infer:
+
+  test:
+    checkpoint: pretrainmodel/flowse-wenetspeech4tts-Premium
+    cond_type: noisy
+    pt_name: best.pt.tar
+    use_cuda: True
+    steps: 32
+    cfg_strength: 1.0  # verify against the training drop probabilities used by your checkpoint
+
+  save:
+    dir: test_out
+    fs: 16000
+
+  datareader:
+    mix_json: datalist/test/text.json
+    mix_dir: datalist/test/noisy
+    mix_fs: 16000
+
+  nnet_conf:
+    *model_conf
