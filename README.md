@@ -145,17 +145,19 @@ source_nfe=10, std_ddof=0, dnsmos_divisor=4.0
 
 ## Checkpoints
 
-Binary checkpoints are distributed separately from the source repository.
-The canonical public location is the GitHub
-[Releases page](https://github.com/spzhang7/GA-AF-FlowSE/releases). Release
-assets use the following logical names:
+Binary checkpoints are distributed separately from the source repository. The
+SFT-20k, AF, GA-AF, and GRPO project checkpoints will be attached to the
+GitHub [Releases page](https://github.com/spzhang7/GA-AF-FlowSE/releases).
+The original FlowSE checkpoint is larger than GitHub's per-asset limit and is
+downloaded from the upstream Hugging Face release as described in
+checkpoints/README.md.
 
 | Release asset | Purpose |
 |---|---|
-| flowse_wenetspeech4tts_premium_best.pt.tar | Original FlowSE baseline |
+| flowse_wenetspeech4tts_premium_best.pt.tar | Original FlowSE baseline; upstream Hugging Face |
 | flowse_sft20k_step020000.pt | 20k-step supervised FlowSE base |
 | af_libritts_dns10s_step005000.pt | Ordinary AF checkpoint |
-| gaaf_libritts_dns10s_ogaf_step005000.pt | GA-AF/OGAF checkpoint |
+| gaaf_libritts_dns10s_ogaf_0_to_5000_step005000.pt | GA-AF/OGAF checkpoint |
 | grpo_voicebank_controlled_latest.pt | Controlled GRPO checkpoint |
 
 The release assets are intentionally not committed to Git because of their
