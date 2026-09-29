@@ -110,7 +110,7 @@ def paired_metrics(
         from pesq import pesq
         from pystoi import stoi
     except ImportError as exc:  # pragma: no cover - dependency checked on server
-        raise RuntimeError("install requirements-eval.txt before Gate A") from exc
+        raise RuntimeError("install requirements.txt before paired evaluation") from exc
     reference = load_mono(reference_path, sample_rate)
     estimate = load_mono(estimate_path, sample_rate)
     reference_samples = int(reference.size)
