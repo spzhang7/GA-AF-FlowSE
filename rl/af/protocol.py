@@ -2019,9 +2019,6 @@ def build_training_protocol(
         for path in (source_protocol_path, source_checkpoint, control_checkpoint):
             if not path.is_file():
                 raise FileNotFoundError(path)
-        source_components = json.loads(
-            source_protocol_path.read_text(encoding="utf-8")
-        )
         branch_source = {
             "source_run_dir": str(source_dir),
             "source_protocol": str(source_protocol_path),

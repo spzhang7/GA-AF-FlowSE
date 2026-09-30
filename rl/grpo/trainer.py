@@ -3063,7 +3063,6 @@ def run(
     resume_physical_gpu_ids: str | Sequence[int] | None = None,
 ) -> tuple[dict, Path]:
     summary = validate_grpo_config(config)
-    public_smoke = str(config["run"].get("mode")) == "smoke"
     # Calibration provenance is optional in the public repository.  The
     # configured frozen reward scales remain authoritative for computation.
     split_audit = audit_data_splits(config, strict_calibration=False)
