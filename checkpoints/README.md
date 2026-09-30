@@ -10,7 +10,7 @@ checkpoints/
 │   ├── wenetspeech4tts-Premium/best.pt.tar
 │   └── libritts_sft20k/checkpoint_step_020000.pt
 ├── af/af_libritts_dns10s_step005000.pt
-├── gaaf/gaaf_libritts_dns10s_ogaf_0_to_5000_step005000.pt
+├── gaaf/gaaf_libritts_dns10s_0_to_5000_step005000.pt
 ├── grpo/grpo_voicebank_controlled_latest.pt
 └── vocos-mel-24khz/pytorch_model.bin
 ```
@@ -32,6 +32,6 @@ hf download charactr/vocos-mel-24khz \
   --local-dir checkpoints/vocos-mel-24khz
 ```
 
-The SFT-20k, AF, GA-AF/OGAF, and GRPO checkpoints are project artifacts.
+The SFT-20k, AF, GA-AF, and GRPO checkpoints are project artifacts.
 When they are published, download the corresponding release asset and place
 it at the path shown above. Do not commit these files to the source repository.

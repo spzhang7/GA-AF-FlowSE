@@ -10,7 +10,7 @@ pretrainmodel/
 └── wavlm-large/
 ```
 
-The paths are referenced by the public AF, GA-AF/OGAF, and GRPO templates.
+The paths are referenced by the public AF, GA-AF, and GRPO templates.
 The required model versions are:
 
 | Directory | Source | Version |

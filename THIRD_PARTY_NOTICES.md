@@ -1,6 +1,6 @@
 # Third-party notices
 
-This file separates third-party components from the GA-AF/OGAF code authored
+This file separates third-party components from the GA-AF code authored
 for this repository. The repository maintainers have obtained permission to use
 and redistribute the FlowSE source listed below. Any final public release
 should retain the corresponding written record and update this notice with its
@@ -55,8 +55,7 @@ scripts.
 
 ## Self-authored code
 
-The self-authored GA-AF/OGAF, AF, GRPO adapter, reward, and utility code is
+The self-authored GA-AF, AF, GRPO adapter, reward, and utility code is
 released under the MIT License in the repository root. This license does not
 supersede the separate terms for FlowSE, Vocos, DNSMOS, ERes2Net, WavLM, or
 any dataset and model weights downloaded from their respective sources.
-

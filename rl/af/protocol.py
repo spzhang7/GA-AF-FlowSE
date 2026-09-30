@@ -104,8 +104,6 @@ def training_nfe_spec(rollout: Mapping) -> dict:
         "scope": scope,
         "seed_base": seed_base,
     }
-
-
 LIBRITTS_LENGTH_ADAPTIVE_MICROBATCHING = {
     "mode": "quadratic_mel_frame_budget",
     "reference_mel_frames": 960,
@@ -641,15 +639,15 @@ def validate_training_config(
                 "three-component composite reward"
             )
     fixed_fusion = config.get("fixed_fusion")
-    ogaf = config.get("ogaf")
-    projected_ogaf = config.get("projected_ogaf")
+    gaaf = config.get("gaaf")
+    projected_gaaf = config.get("projected_gaaf")
     marble = config.get("marble")
     if sum(
         value is not None
-        for value in (fixed_fusion, ogaf, projected_ogaf, marble)
+        for value in (fixed_fusion, gaaf, projected_gaaf, marble)
     ) > 1:
         raise ValueError(
-            "configure only one of fixed_fusion, ogaf, projected_ogaf, or marble"
+            "configure only one of fixed_fusion, gaaf, projected_gaaf, or marble"
         )
     if fixed_fusion is not None:
         required_fixed_fusion = {"primary", "auxiliaries", "weights"}
@@ -857,32 +855,32 @@ def validate_training_config(
             )
         if reward["name"] != FLOWSE_GRPO_COMPOSITE:
             raise ValueError("fixed fusion requires the frozen three-component reward")
-    if ogaf is not None:
-        if not isinstance(ogaf, dict) or set(ogaf) != {
+    if gaaf is not None:
+        if not isinstance(gaaf, dict) or set(gaaf) != {
             "primary",
             "auxiliaries",
             "gradient_refresh_interval",
             "coefficient_ema_decay",
             "auxiliary_cap",
         }:
-            raise ValueError("ogaf must contain exactly the frozen gate fields")
-        if str(ogaf["primary"]) != "dnsmos_ovrl":
-            raise ValueError("OGAF primary reward must be DNSMOS OVRL")
-        if list(ogaf["auxiliaries"]) != [
+            raise ValueError("gaaf must contain exactly the frozen gate fields")
+        if str(gaaf["primary"]) != "dnsmos_ovrl":
+            raise ValueError("GA-AF primary reward must be DNSMOS OVRL")
+        if list(gaaf["auxiliaries"]) != [
             "eres2net_speaker_similarity",
             "speechbertscore",
         ]:
-            raise ValueError("OGAF auxiliaries must be ERes2Net and SpeechBERTScore")
-        if int(ogaf["gradient_refresh_interval"]) != 10:
-            raise ValueError("OGAF pilot requires gradient_refresh_interval=10")
-        if float(ogaf["coefficient_ema_decay"]) != 0.7:
-            raise ValueError("OGAF pilot requires coefficient_ema_decay=0.7")
-        if float(ogaf["auxiliary_cap"]) != 0.5:
-            raise ValueError("OGAF pilot requires auxiliary_cap=0.5")
+            raise ValueError("GA-AF auxiliaries must be ERes2Net and SpeechBERTScore")
+        if int(gaaf["gradient_refresh_interval"]) != 10:
+            raise ValueError("GA-AF pilot requires gradient_refresh_interval=10")
+        if float(gaaf["coefficient_ema_decay"]) != 0.7:
+            raise ValueError("GA-AF pilot requires coefficient_ema_decay=0.7")
+        if float(gaaf["auxiliary_cap"]) != 0.5:
+            raise ValueError("GA-AF pilot requires auxiliary_cap=0.5")
         if reward["name"] != FLOWSE_GRPO_COMPOSITE:
-            raise ValueError("OGAF requires the frozen three-component composite")
-    if projected_ogaf is not None:
-        required_projected_ogaf = {
+            raise ValueError("GA-AF requires the frozen three-component composite")
+    if projected_gaaf is not None:
+        required_projected_gaaf = {
             "primary",
             "auxiliaries",
             "gradient_refresh_interval",
@@ -892,46 +890,46 @@ def validate_training_config(
             "projection_epsilon",
         }
         if (
-            not isinstance(projected_ogaf, dict)
-            or set(projected_ogaf) != required_projected_ogaf
+            not isinstance(projected_gaaf, dict)
+            or set(projected_gaaf) != required_projected_gaaf
         ):
             raise ValueError(
-                "projected_ogaf must contain exactly primary, auxiliaries, "
+                "projected_gaaf must contain exactly primary, auxiliaries, "
                 "gradient_refresh_interval, coefficient_ema_decay, "
                 "auxiliary_target_norm_ratio, auxiliary_coefficient_cap, and "
                 "projection_epsilon"
             )
-        if str(projected_ogaf["primary"]) != "dnsmos_ovrl":
-            raise ValueError("projected OGAF primary reward must be DNSMOS OVRL")
-        if list(projected_ogaf["auxiliaries"]) != [
+        if str(projected_gaaf["primary"]) != "dnsmos_ovrl":
+            raise ValueError("projected GA-AF primary reward must be DNSMOS OVRL")
+        if list(projected_gaaf["auxiliaries"]) != [
             "eres2net_speaker_similarity",
             "speechbertscore",
         ]:
             raise ValueError(
-                "projected OGAF auxiliaries must be ERes2Net and SpeechBERTScore"
+                "projected GA-AF auxiliaries must be ERes2Net and SpeechBERTScore"
             )
-        if int(projected_ogaf["gradient_refresh_interval"]) != 10:
+        if int(projected_gaaf["gradient_refresh_interval"]) != 10:
             raise ValueError(
-                "projected OGAF requires gradient_refresh_interval=10"
+                "projected GA-AF requires gradient_refresh_interval=10"
             )
-        if float(projected_ogaf["coefficient_ema_decay"]) != 0.7:
-            raise ValueError("projected OGAF requires coefficient_ema_decay=0.7")
-        if float(projected_ogaf["auxiliary_target_norm_ratio"]) != 0.15:
+        if float(projected_gaaf["coefficient_ema_decay"]) != 0.7:
+            raise ValueError("projected GA-AF requires coefficient_ema_decay=0.7")
+        if float(projected_gaaf["auxiliary_target_norm_ratio"]) != 0.15:
             raise ValueError(
-                "projected OGAF requires auxiliary_target_norm_ratio=0.15"
+                "projected GA-AF requires auxiliary_target_norm_ratio=0.15"
             )
-        if float(projected_ogaf["auxiliary_coefficient_cap"]) != 0.5:
+        if float(projected_gaaf["auxiliary_coefficient_cap"]) != 0.5:
             raise ValueError(
-                "projected OGAF requires auxiliary_coefficient_cap=0.5"
+                "projected GA-AF requires auxiliary_coefficient_cap=0.5"
             )
         if (
-            not math.isfinite(float(projected_ogaf["projection_epsilon"]))
-            or float(projected_ogaf["projection_epsilon"]) != 1.0e-12
+            not math.isfinite(float(projected_gaaf["projection_epsilon"]))
+            or float(projected_gaaf["projection_epsilon"]) != 1.0e-12
         ):
-            raise ValueError("projected OGAF requires projection_epsilon=1e-12")
+            raise ValueError("projected GA-AF requires projection_epsilon=1e-12")
         if reward["name"] != FLOWSE_GRPO_COMPOSITE:
             raise ValueError(
-                "projected OGAF requires the frozen three-component composite"
+                "projected GA-AF requires the frozen three-component composite"
             )
     if marble is not None:
         required_marble = {
@@ -1176,37 +1174,37 @@ def validate_training_config(
                     "formal Fixed fusion must checkpoint every 250 updates and "
                     "evaluate every 1000 updates through step 5000 at NFE=32"
                 )
-        elif experiment_kind == "libritts_dns_ogaf_l16_k8_sft20k_0_to_5000":
+        elif experiment_kind == "libritts_dns_gaaf_l16_k8_sft20k_0_to_5000":
             if observed != CONTROLLED_L16_K8_BASELINE:
                 raise ValueError(
-                    "step-0 LibriTTS OGAF requires L=16, K=8 and frozen "
+                    "step-0 LibriTTS GA-AF requires L=16, K=8 and frozen "
                     f"non-L/K fields: expected={CONTROLLED_L16_K8_BASELINE}, "
                     f"got={observed}"
                 )
             if adaptive_microbatching != LIBRITTS_LENGTH_ADAPTIVE_MICROBATCHING:
                 raise ValueError(
-                    "step-0 LibriTTS OGAF requires the frozen length-adaptive "
+                    "step-0 LibriTTS GA-AF requires the frozen length-adaptive "
                     "K execution policy"
                 )
             if int(run["optimizer_steps"]) != 5000 or schedule_total_steps != 5000:
                 raise ValueError(
-                    "step-0 LibriTTS OGAF requires 5000 optimizer/schedule steps"
+                    "step-0 LibriTTS GA-AF requires 5000 optimizer/schedule steps"
                 )
             if int(loss["microbatch_size"]) != 8:
                 raise ValueError(
-                    "step-0 LibriTTS OGAF requires validated microbatch_size=8"
+                    "step-0 LibriTTS GA-AF requires validated microbatch_size=8"
                 )
-            if not isinstance(ogaf, dict):
+            if not isinstance(gaaf, dict):
                 raise ValueError(
-                    "step-0 LibriTTS OGAF requires an ogaf definition"
+                    "step-0 LibriTTS GA-AF requires an gaaf definition"
                 )
             if not bool(preflight and preflight.get("require_single_coverage", False)):
                 raise ValueError(
-                    "step-0 LibriTTS OGAF requires one frozen exposure coverage"
+                    "step-0 LibriTTS GA-AF requires one frozen exposure coverage"
                 )
             if int(preflight["expected_train_utterances"]) != 80_000:
                 raise ValueError(
-                    "step-0 LibriTTS OGAF requires exactly 80,000 exposures"
+                    "step-0 LibriTTS GA-AF requires exactly 80,000 exposures"
                 )
             evaluation = config["evaluation"]
             if (
@@ -1215,46 +1213,46 @@ def validate_training_config(
                 or int(config["artifacts"]["checkpoint_interval"]) != 250
             ):
                 raise ValueError(
-                    "step-0 LibriTTS OGAF must checkpoint every 250 steps and "
+                    "step-0 LibriTTS GA-AF must checkpoint every 250 steps and "
                     "evaluate at 1000-step intervals through endpoint 5000"
                 )
         elif experiment_kind == (
-            "libritts_dns_projected_ogaf_l16_k8_sft20k_0_to_5000"
+            "libritts_dns_projected_gaaf_l16_k8_sft20k_0_to_5000"
         ):
             if observed != CONTROLLED_L16_K8_BASELINE:
                 raise ValueError(
-                    "step-0 LibriTTS projected OGAF requires L=16, K=8 and "
+                    "step-0 LibriTTS projected GA-AF requires L=16, K=8 and "
                     "frozen non-L/K fields: "
                     f"expected={CONTROLLED_L16_K8_BASELINE}, got={observed}"
                 )
             if adaptive_microbatching != LIBRITTS_LENGTH_ADAPTIVE_MICROBATCHING:
                 raise ValueError(
-                    "step-0 LibriTTS projected OGAF requires the frozen "
+                    "step-0 LibriTTS projected GA-AF requires the frozen "
                     "length-adaptive K execution policy"
                 )
             if int(run["optimizer_steps"]) != 5000 or schedule_total_steps != 5000:
                 raise ValueError(
-                    "step-0 LibriTTS projected OGAF requires 5000 "
+                    "step-0 LibriTTS projected GA-AF requires 5000 "
                     "optimizer/schedule steps"
                 )
             if int(loss["microbatch_size"]) != 8:
                 raise ValueError(
-                    "step-0 LibriTTS projected OGAF requires validated "
+                    "step-0 LibriTTS projected GA-AF requires validated "
                     "microbatch_size=8"
                 )
-            if not isinstance(projected_ogaf, dict):
+            if not isinstance(projected_gaaf, dict):
                 raise ValueError(
-                    "step-0 LibriTTS projected OGAF requires a "
-                    "projected_ogaf definition"
+                    "step-0 LibriTTS projected GA-AF requires a "
+                    "projected_gaaf definition"
                 )
             if not bool(preflight and preflight.get("require_single_coverage", False)):
                 raise ValueError(
-                    "step-0 LibriTTS projected OGAF requires one frozen "
+                    "step-0 LibriTTS projected GA-AF requires one frozen "
                     "exposure coverage"
                 )
             if int(preflight["expected_train_utterances"]) != 80_000:
                 raise ValueError(
-                    "step-0 LibriTTS projected OGAF requires exactly 80,000 "
+                    "step-0 LibriTTS projected GA-AF requires exactly 80,000 "
                     "exposures"
                 )
             evaluation = config["evaluation"]
@@ -1264,7 +1262,7 @@ def validate_training_config(
                 or int(config["artifacts"]["checkpoint_interval"]) != 250
             ):
                 raise ValueError(
-                    "step-0 LibriTTS projected OGAF must checkpoint every 250 "
+                    "step-0 LibriTTS projected GA-AF must checkpoint every 250 "
                     "steps and evaluate at 1000-step intervals through "
                     "endpoint 5000"
                 )
@@ -1575,34 +1573,34 @@ def validate_training_config(
                 raise ValueError(
                     "250-step sequential specialist must allow partial manifest coverage"
                 )
-        elif experiment_kind == "ogaf_l16_k8_250step":
+        elif experiment_kind == "gaaf_l16_k8_250step":
             if observed != CONTROLLED_L16_K8_BASELINE:
-                raise ValueError("OGAF pilot must retain the frozen L16/K8 baseline")
+                raise ValueError("GA-AF pilot must retain the frozen L16/K8 baseline")
             branch = config.get("branch")
             if not isinstance(branch, dict) or set(branch) != {
                 "source_run_dir",
                 "source_step",
                 "global_step_offset",
             }:
-                raise ValueError("OGAF pilot requires an exact step-4000 branch")
+                raise ValueError("GA-AF pilot requires an exact step-4000 branch")
             if int(branch["source_step"]) != 4000 or int(
                 branch["global_step_offset"]
             ) != 4000:
-                raise ValueError("OGAF pilot must branch at global step 4000")
+                raise ValueError("GA-AF pilot must branch at global step 4000")
             if int(run["optimizer_steps"]) != 250 or schedule_total_steps != 5000:
                 raise ValueError(
-                    "OGAF pilot requires 250 local steps on the original LR horizon"
+                    "GA-AF pilot requires 250 local steps on the original LR horizon"
                 )
             if int(loss["microbatch_size"]) != 8:
-                raise ValueError("OGAF pilot requires validated microbatch_size=8")
-            if not isinstance(ogaf, dict):
-                raise ValueError("OGAF experiment_kind requires an ogaf definition")
+                raise ValueError("GA-AF pilot requires validated microbatch_size=8")
+            if not isinstance(gaaf, dict):
+                raise ValueError("GA-AF experiment_kind requires an gaaf definition")
             if not bool(preflight and preflight.get("allow_partial_coverage", False)):
-                raise ValueError("250-step OGAF pilot must allow partial coverage")
-        elif experiment_kind == "ogaf_l16_k8_1000step":
+                raise ValueError("250-step GA-AF pilot must allow partial coverage")
+        elif experiment_kind == "gaaf_l16_k8_1000step":
             if observed != CONTROLLED_L16_K8_BASELINE:
                 raise ValueError(
-                    "formal OGAF branch must retain the frozen L16/K8 baseline"
+                    "formal GA-AF branch must retain the frozen L16/K8 baseline"
                 )
             branch = config.get("branch")
             if not isinstance(branch, dict) or set(branch) != {
@@ -1610,22 +1608,22 @@ def validate_training_config(
                 "source_step",
                 "global_step_offset",
             }:
-                raise ValueError("formal OGAF branch requires an exact step-4000 source")
+                raise ValueError("formal GA-AF branch requires an exact step-4000 source")
             if int(branch["source_step"]) != 4000 or int(
                 branch["global_step_offset"]
             ) != 4000:
-                raise ValueError("formal OGAF branch must start at global step 4000")
+                raise ValueError("formal GA-AF branch must start at global step 4000")
             if int(run["optimizer_steps"]) != 1000 or schedule_total_steps != 5000:
                 raise ValueError(
-                    "formal OGAF branch requires 1000 local steps on the original "
+                    "formal GA-AF branch requires 1000 local steps on the original "
                     "5000-step LR horizon"
                 )
             if int(loss["microbatch_size"]) != 8:
                 raise ValueError(
-                    "formal OGAF branch requires validated microbatch_size=8"
+                    "formal GA-AF branch requires validated microbatch_size=8"
                 )
-            if not isinstance(ogaf, dict):
-                raise ValueError("formal OGAF experiment requires an ogaf definition")
+            if not isinstance(gaaf, dict):
+                raise ValueError("formal GA-AF experiment requires an gaaf definition")
             evaluation = config["evaluation"]
             if (
                 int(evaluation["interval_steps"]) != 250
@@ -1633,31 +1631,31 @@ def validate_training_config(
                 or int(config["artifacts"]["checkpoint_interval"]) != 250
             ):
                 raise ValueError(
-                    "formal OGAF branch must evaluate and checkpoint every 250 local "
+                    "formal GA-AF branch must evaluate and checkpoint every 250 local "
                     "steps, with local step 1000 as the endpoint"
                 )
             if bool(preflight and preflight.get("allow_partial_coverage", False)):
                 raise ValueError(
-                    "formal 1000-step OGAF branch must not allow partial data coverage"
+                    "formal 1000-step GA-AF branch must not allow partial data coverage"
                 )
         elif experiment_kind in {
-            "libritts_dns_ogaf_l16_k8_sft20k_3000_to_5000",
-            "libritts_dns_ogaf_l16_k8_sft20k_4000_to_5000",
+            "libritts_dns_gaaf_l16_k8_sft20k_3000_to_5000",
+            "libritts_dns_gaaf_l16_k8_sft20k_4000_to_5000",
         }:
             branch_design = {
-                "libritts_dns_ogaf_l16_k8_sft20k_3000_to_5000": (3000, 2000),
-                "libritts_dns_ogaf_l16_k8_sft20k_4000_to_5000": (4000, 1000),
+                "libritts_dns_gaaf_l16_k8_sft20k_3000_to_5000": (3000, 2000),
+                "libritts_dns_gaaf_l16_k8_sft20k_4000_to_5000": (4000, 1000),
             }
             required_source_step, required_local_steps = branch_design[
                 experiment_kind
             ]
             if observed != CONTROLLED_L16_K8_BASELINE:
                 raise ValueError(
-                    "LibriTTS OGAF branch must retain the frozen L16/K8 baseline"
+                    "LibriTTS GA-AF branch must retain the frozen L16/K8 baseline"
                 )
             if adaptive_microbatching != LIBRITTS_LENGTH_ADAPTIVE_MICROBATCHING:
                 raise ValueError(
-                    "LibriTTS OGAF requires the frozen length-adaptive K execution"
+                    "LibriTTS GA-AF requires the frozen length-adaptive K execution"
                 )
             branch = config.get("branch")
             if not isinstance(branch, dict) or set(branch) != {
@@ -1666,13 +1664,13 @@ def validate_training_config(
                 "global_step_offset",
             }:
                 raise ValueError(
-                    "LibriTTS OGAF requires an exact frozen AF branch source"
+                    "LibriTTS GA-AF requires an exact frozen AF branch source"
                 )
             if int(branch["source_step"]) != required_source_step or int(
                 branch["global_step_offset"]
             ) != required_source_step:
                 raise ValueError(
-                    "LibriTTS OGAF branch source/global offset must equal "
+                    "LibriTTS GA-AF branch source/global offset must equal "
                     f"{required_source_step}"
                 )
             if (
@@ -1680,15 +1678,15 @@ def validate_training_config(
                 or schedule_total_steps != 5000
             ):
                 raise ValueError(
-                    f"LibriTTS OGAF requires {required_local_steps} local updates "
+                    f"LibriTTS GA-AF requires {required_local_steps} local updates "
                     "on the original 5000-step LR horizon"
                 )
             if int(loss["microbatch_size"]) != 8:
                 raise ValueError(
-                    "LibriTTS OGAF requires validated microbatch_size=8"
+                    "LibriTTS GA-AF requires validated microbatch_size=8"
                 )
-            if not isinstance(ogaf, dict):
-                raise ValueError("LibriTTS OGAF requires an ogaf definition")
+            if not isinstance(gaaf, dict):
+                raise ValueError("LibriTTS GA-AF requires an gaaf definition")
             evaluation = config["evaluation"]
             if (
                 int(evaluation["interval_steps"]) != 250
@@ -1697,14 +1695,14 @@ def validate_training_config(
                 or int(config["artifacts"]["checkpoint_interval"]) != 250
             ):
                 raise ValueError(
-                    "LibriTTS OGAF must evaluate and checkpoint every 250 local "
+                    "LibriTTS GA-AF must evaluate and checkpoint every 250 local "
                     f"steps, with local step {required_local_steps} as the endpoint"
                 )
             if not bool(
                 preflight and preflight.get("allow_partial_coverage", False)
             ):
                 raise ValueError(
-                    "LibriTTS OGAF must declare local partial-manifest coverage"
+                    "LibriTTS GA-AF must declare local partial-manifest coverage"
                 )
             expected_utterances = int(preflight["expected_train_utterances"])
             global_end_step = int(branch["source_step"]) + int(
@@ -1715,7 +1713,7 @@ def validate_training_config(
                 != expected_utterances
             ):
                 raise ValueError(
-                    "LibriTTS OGAF parent plus branch must exactly cover the frozen "
+                    "LibriTTS GA-AF parent plus branch must exactly cover the frozen "
                     "training exposure schedule"
                 )
         else:

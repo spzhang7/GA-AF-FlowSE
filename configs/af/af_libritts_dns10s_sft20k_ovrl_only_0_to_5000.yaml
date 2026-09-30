@@ -11,9 +11,9 @@ run:
   # Optional: set true only when exact deterministic CUDA kernels are required.
   require_cublas_workspace_config: false
 
-# Isolated ablation against OGAF: start from the identical SFT-20k base and
+# Isolated ablation against GA-AF: start from the identical SFT-20k base and
 # retain every training/sampling/evaluation setting. Only the optimized scalar
-# reward changes to raw DNSMOS OVRL and the OGAF gradient gate is absent.
+# reward changes to raw DNSMOS OVRL and the GA-AF gradient gate is absent.
 flowse_config: configs/flowse/flowse_libritts_sft20k_wotext.yaml
 dnsmos_official_dir: pretrainmodel/DNSMOS-official
 output_root: artifacts/af/speech_advantageflow_libritts_dns10s_sft20k_ovrl_only_0_to_5000
@@ -36,7 +36,7 @@ cuda_memory_reservation:
   require_target: true
 
 # The auxiliary composite is reporting-only. It preserves exactly the same
-# ERes2Net/SpeechBERTScore queries and composite metric accounting as OGAF, so
+# ERes2Net/SpeechBERTScore queries and composite metric accounting as GA-AF, so
 # the ablation differs only in the advantage used for optimization.
 training_reward:
   name: dnsmos_ovrl_raw
@@ -163,4 +163,3 @@ pilot_decision:
     stoi: -0.005
     pesq_wb: -0.10
     wer: 0.02
-

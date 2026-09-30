@@ -1,7 +1,7 @@
 run:
   mode: smoke
-  experiment_kind: libritts_dns_ogaf_l16_k8_sft20k_0_to_5000
-  protocol_version: speech_advantageflow_libritts_dns10s_ogaf_smoke_v1
+  experiment_kind: libritts_dns_gaaf_l16_k8_sft20k_0_to_5000
+  protocol_version: speech_advantageflow_libritts_dns10s_gaaf_smoke_v1
   startup_validation: lightweight
   seed: 260521
   deterministic: false
@@ -49,7 +49,7 @@ data:
   clean_dir: data/libritts_dns10s/audio/clean
   order_seed: 260810
 
-ogaf:
+gaaf:
   primary: dnsmos_ovrl
   auxiliaries: [eres2net_speaker_similarity, speechbertscore]
   gradient_refresh_interval: 10

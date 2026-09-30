@@ -58,24 +58,24 @@ from .advantage_flow import (
     stable_seed,
 )
 from rl.gaaf.gradient_aligned_advantage_flow import (
-    COMPONENTS as OGAF_COMPONENTS,
-    calibration_due as ogaf_calibration_due,
+    COMPONENTS as GA-AF_COMPONENTS,
+    calibration_due as gaaf_calibration_due,
     component_advantage_streams,
     convex_fuse_streams,
     marble_fuse_streams,
     marble_calibration_due,
     marble_simplex_weights,
     observed_gate_weights,
-    projected_ogaf_calibration_due,
-    projected_ogaf_observed_weights,
+    projected_gaaf_calibration_due,
+    projected_gaaf_observed_weights,
     replace_advantages,
     reward_induced_gradients,
     update_marble_state,
-    update_projected_ogaf_state,
+    update_projected_gaaf_state,
     validate_marble_state,
     update_gate_state,
     validate_gate_state,
-    validate_projected_ogaf_state,
+    validate_projected_gaaf_state,
 )
 from .protocol import (
     build_training_protocol,
@@ -520,25 +520,25 @@ def _compute_training_accounting(
         "used_trajectories": logical_endpoints,
         "reward_calls": logical_endpoints,
         "optimizer_updates": len(accounting_records),
-        "ogaf_gradient_calibrations": sum(
-            bool(row.get("ogaf", {}).get("calibration_performed", False))
+        "gaaf_gradient_calibrations": sum(
+            bool(row.get("gaaf", {}).get("calibration_performed", False))
             for row in accounting_records
         ),
-        "ogaf_calibration_backward_calls": sum(
-            int(row.get("ogaf", {}).get("calibration_backward_calls", 0))
+        "gaaf_calibration_backward_calls": sum(
+            int(row.get("gaaf", {}).get("calibration_backward_calls", 0))
             for row in accounting_records
         ),
-        "projected_ogaf_gradient_calibrations": sum(
+        "projected_gaaf_gradient_calibrations": sum(
             bool(
-                row.get("projected_ogaf", {}).get(
+                row.get("projected_gaaf", {}).get(
                     "calibration_performed", False
                 )
             )
             for row in accounting_records
         ),
-        "projected_ogaf_calibration_backward_calls": sum(
+        "projected_gaaf_calibration_backward_calls": sum(
             int(
-                row.get("projected_ogaf", {}).get(
+                row.get("projected_gaaf", {}).get(
                     "calibration_backward_calls", 0
                 )
             )
@@ -564,15 +564,15 @@ def _compute_training_accounting(
             "reference_policy_loss_examples": logical_endpoints,
             "current_policy_loss_examples": logical_endpoints,
             "backward_endpoint_examples": logical_endpoints,
-            "ogaf_calibration_backward_endpoint_examples": sum(
+            "gaaf_calibration_backward_endpoint_examples": sum(
                 int(row.get("rollout_geometry", {}).get("logical_endpoints", 0))
-                * int(row.get("ogaf", {}).get("calibration_backward_calls", 0))
+                * int(row.get("gaaf", {}).get("calibration_backward_calls", 0))
                 for row in accounting_records
             ),
-            "projected_ogaf_calibration_backward_endpoint_examples": sum(
+            "projected_gaaf_calibration_backward_endpoint_examples": sum(
                 int(row.get("rollout_geometry", {}).get("logical_endpoints", 0))
                 * int(
-                    row.get("projected_ogaf", {}).get(
+                    row.get("projected_gaaf", {}).get(
                         "calibration_backward_calls", 0
                     )
                 )
@@ -2473,19 +2473,19 @@ def _load_branch_checkpoint(
     if source_reward["name"] != FLOWSE_GRPO_COMPOSITE:
         raise ValueError("sequential specialist must branch from composite AF")
     uses_fixed_fusion = isinstance(config.get("fixed_fusion"), Mapping)
-    uses_ogaf = isinstance(config.get("ogaf"), Mapping)
-    uses_projected_ogaf = isinstance(config.get("projected_ogaf"), Mapping)
+    uses_gaaf = isinstance(config.get("gaaf"), Mapping)
+    uses_projected_gaaf = isinstance(config.get("projected_gaaf"), Mapping)
     uses_marble = isinstance(config.get("marble"), Mapping)
     if sum(
-        (uses_fixed_fusion, uses_ogaf, uses_projected_ogaf, uses_marble)
+        (uses_fixed_fusion, uses_gaaf, uses_projected_gaaf, uses_marble)
     ) > 1:
         raise ValueError(
-            "configure only one of fixed_fusion, ogaf, projected_ogaf, or marble"
+            "configure only one of fixed_fusion, gaaf, projected_gaaf, or marble"
         )
-    if uses_fixed_fusion or uses_ogaf or uses_projected_ogaf or uses_marble:
+    if uses_fixed_fusion or uses_gaaf or uses_projected_gaaf or uses_marble:
         if target_reward != source_reward:
             raise ValueError(
-                "fixed-fusion/OGAF/projected-OGAF/MARBLE branch must retain the source "
+                "fixed-fusion/GA-AF/projected-GA-AF/MARBLE branch must retain the source "
                 "composite reward"
             )
     elif target_reward.get("auxiliary_composite") != source_reward:
@@ -2526,9 +2526,9 @@ def _load_branch_checkpoint(
             "validation_selected_fixed_advantage_fusion"
             if uses_fixed_fusion
             else "ovrl_guarded_advantage_fusion"
-            if uses_ogaf
+            if uses_gaaf
             else "ovrl_primary_asymmetric_gradient_projection"
-            if uses_projected_ogaf
+            if uses_projected_gaaf
             else "ovrl_preferred_marble"
             if uses_marble
             else "sequential_reward_specialization"
@@ -2730,20 +2730,20 @@ def run(config: dict, *, resume: Path | None = None) -> tuple[dict, Path]:
     branch_descriptor = None
     fixed_fusion_config = config.get("fixed_fusion")
     uses_fixed_fusion = isinstance(fixed_fusion_config, Mapping)
-    ogaf_config = config.get("ogaf")
-    uses_ogaf = isinstance(ogaf_config, Mapping)
-    projected_ogaf_config = config.get("projected_ogaf")
-    uses_projected_ogaf = isinstance(projected_ogaf_config, Mapping)
+    gaaf_config = config.get("gaaf")
+    uses_gaaf = isinstance(gaaf_config, Mapping)
+    projected_gaaf_config = config.get("projected_gaaf")
+    uses_projected_gaaf = isinstance(projected_gaaf_config, Mapping)
     marble_config = config.get("marble")
     uses_marble = isinstance(marble_config, Mapping)
     if sum(
-        (uses_fixed_fusion, uses_ogaf, uses_projected_ogaf, uses_marble)
+        (uses_fixed_fusion, uses_gaaf, uses_projected_gaaf, uses_marble)
     ) > 1:
         raise ValueError(
-            "configure only one of fixed_fusion, ogaf, projected_ogaf, or marble"
+            "configure only one of fixed_fusion, gaaf, projected_gaaf, or marble"
         )
-    ogaf_gate_state = None
-    projected_ogaf_state = None
+    gaaf_gate_state = None
+    projected_gaaf_state = None
     marble_state = None
     if resume is not None:
         if Path(resume).resolve() != checkpoint_path.resolve():
@@ -2761,23 +2761,23 @@ def run(config: dict, *, resume: Path | None = None) -> tuple[dict, Path]:
         branch_descriptor = checkpoint_extra.get("branch_lineage")
         if "branch" in config and not isinstance(branch_descriptor, Mapping):
             raise ValueError("branch checkpoint is missing its frozen lineage")
-        ogaf_gate_state = checkpoint_extra.get("ogaf_gate_state")
-        projected_ogaf_state = checkpoint_extra.get("projected_ogaf_state")
+        gaaf_gate_state = checkpoint_extra.get("gaaf_gate_state")
+        projected_gaaf_state = checkpoint_extra.get("projected_gaaf_state")
         marble_state = checkpoint_extra.get("marble_state")
-        if uses_ogaf:
-            if completed_step > 0 and not isinstance(ogaf_gate_state, Mapping):
-                raise ValueError("resumed OGAF checkpoint lacks its gate state")
-            if ogaf_gate_state is not None:
-                validate_gate_state(ogaf_gate_state)
-        if uses_projected_ogaf:
+        if uses_gaaf:
+            if completed_step > 0 and not isinstance(gaaf_gate_state, Mapping):
+                raise ValueError("resumed GA-AF checkpoint lacks its gate state")
+            if gaaf_gate_state is not None:
+                validate_gate_state(gaaf_gate_state)
+        if uses_projected_gaaf:
             if completed_step > 0 and not isinstance(
-                projected_ogaf_state, Mapping
+                projected_gaaf_state, Mapping
             ):
                 raise ValueError(
-                    "resumed projected OGAF checkpoint lacks its state"
+                    "resumed projected GA-AF checkpoint lacks its state"
                 )
-            if projected_ogaf_state is not None:
-                validate_projected_ogaf_state(projected_ogaf_state)
+            if projected_gaaf_state is not None:
+                validate_projected_gaaf_state(projected_gaaf_state)
         if uses_marble:
             if completed_step > 0 and not isinstance(marble_state, Mapping):
                 raise ValueError("resumed MARBLE checkpoint lacks its state")
@@ -2830,8 +2830,8 @@ def run(config: dict, *, resume: Path | None = None) -> tuple[dict, Path]:
             protocol_hash=protocol_hash,
             extra={
                 "branch_lineage": branch_descriptor,
-                "ogaf_gate_state": ogaf_gate_state,
-                "projected_ogaf_state": projected_ogaf_state,
+                "gaaf_gate_state": gaaf_gate_state,
+                "projected_gaaf_state": projected_gaaf_state,
                 "marble_state": marble_state,
                 "step_transaction": {
                     "schema_version": 1,
@@ -2981,10 +2981,10 @@ def run(config: dict, *, resume: Path | None = None) -> tuple[dict, Path]:
         optimization_started = time.perf_counter()
         loss_backward_started = time.perf_counter()
         fixed_fusion_step = None
-        ogaf_step = None
-        projected_ogaf_step = None
+        gaaf_step = None
+        projected_gaaf_step = None
         marble_step = None
-        if uses_fixed_fusion or uses_ogaf or uses_projected_ogaf or uses_marble:
+        if uses_fixed_fusion or uses_gaaf or uses_projected_gaaf or uses_marble:
             component_streams, component_diagnostics = component_advantage_streams(
                 rollout_rows,
                 conditions=len(conditions),
@@ -2994,7 +2994,7 @@ def run(config: dict, *, resume: Path | None = None) -> tuple[dict, Path]:
             if uses_fixed_fusion:
                 fixed_weights = {
                     name: float(fixed_fusion_config["weights"][name])
-                    for name in OGAF_COMPONENTS
+                    for name in GA-AF_COMPONENTS
                 }
                 fused_stream = convex_fuse_streams(component_streams, fixed_weights)
                 total_fixed_weight = float(sum(fixed_weights.values()))
@@ -3021,14 +3021,14 @@ def run(config: dict, *, resume: Path | None = None) -> tuple[dict, Path]:
                 calibration_due = False
                 calibration_backward_calls = 0
                 calibration_losses = None
-            elif uses_ogaf:
-                fusion_config = ogaf_config
-                fusion_state = ogaf_gate_state
-                calibration_function = ogaf_calibration_due
-            elif uses_projected_ogaf:
-                fusion_config = projected_ogaf_config
-                fusion_state = projected_ogaf_state
-                calibration_function = projected_ogaf_calibration_due
+            elif uses_gaaf:
+                fusion_config = gaaf_config
+                fusion_state = gaaf_gate_state
+                calibration_function = gaaf_calibration_due
+            elif uses_projected_gaaf:
+                fusion_config = projected_gaaf_config
+                fusion_state = projected_gaaf_state
+                calibration_function = projected_gaaf_calibration_due
             else:
                 fusion_config = marble_config
                 fusion_state = marble_state
@@ -3079,48 +3079,48 @@ def run(config: dict, *, resume: Path | None = None) -> tuple[dict, Path]:
                         ),
                     )
                 )
-                if uses_ogaf:
+                if uses_gaaf:
                     observed_weights, gradient_cosines, component_gradient_norms = (
                         observed_gate_weights(
                             component_gradients,
-                            auxiliary_cap=float(ogaf_config["auxiliary_cap"]),
+                            auxiliary_cap=float(gaaf_config["auxiliary_cap"]),
                         )
                     )
-                    ogaf_gate_state = update_gate_state(
-                        ogaf_gate_state,
+                    gaaf_gate_state = update_gate_state(
+                        gaaf_gate_state,
                         observed_weights=observed_weights,
                         cosines=gradient_cosines,
                         gradient_norms=component_gradient_norms,
-                        ema_decay=float(ogaf_config["coefficient_ema_decay"]),
+                        ema_decay=float(gaaf_config["coefficient_ema_decay"]),
                         local_step=step,
                         global_step=global_step,
                     )
-                elif uses_projected_ogaf:
+                elif uses_projected_gaaf:
                     (
                         observed_weights,
                         gradient_cosines,
                         component_gradient_norms,
                         projection_diagnostics,
-                    ) = projected_ogaf_observed_weights(
+                    ) = projected_gaaf_observed_weights(
                         component_gradients,
                         auxiliary_target_norm_ratio=float(
-                            projected_ogaf_config["auxiliary_target_norm_ratio"]
+                            projected_gaaf_config["auxiliary_target_norm_ratio"]
                         ),
                         auxiliary_coefficient_cap=float(
-                            projected_ogaf_config["auxiliary_coefficient_cap"]
+                            projected_gaaf_config["auxiliary_coefficient_cap"]
                         ),
                         projection_epsilon=float(
-                            projected_ogaf_config["projection_epsilon"]
+                            projected_gaaf_config["projection_epsilon"]
                         ),
                     )
-                    projected_ogaf_state = update_projected_ogaf_state(
-                        projected_ogaf_state,
+                    projected_gaaf_state = update_projected_gaaf_state(
+                        projected_gaaf_state,
                         observed_weights=observed_weights,
                         cosines=gradient_cosines,
                         gradient_norms=component_gradient_norms,
                         diagnostics=projection_diagnostics,
                         ema_decay=float(
-                            projected_ogaf_config["coefficient_ema_decay"]
+                            projected_gaaf_config["coefficient_ema_decay"]
                         ),
                         local_step=step,
                         global_step=global_step,
@@ -3148,28 +3148,28 @@ def run(config: dict, *, resume: Path | None = None) -> tuple[dict, Path]:
                     )
             if uses_fixed_fusion:
                 pass
-            elif uses_ogaf:
-                validate_gate_state(ogaf_gate_state)
+            elif uses_gaaf:
+                validate_gate_state(gaaf_gate_state)
                 fused_stream = convex_fuse_streams(
-                    component_streams, ogaf_gate_state["weights"]
+                    component_streams, gaaf_gate_state["weights"]
                 )
-                fusion_state = ogaf_gate_state
+                fusion_state = gaaf_gate_state
                 fusion_diagnostics = None
-            elif uses_projected_ogaf:
-                validate_projected_ogaf_state(projected_ogaf_state)
+            elif uses_projected_gaaf:
+                validate_projected_gaaf_state(projected_gaaf_state)
                 fused_stream = convex_fuse_streams(
-                    component_streams, projected_ogaf_state["weights"]
+                    component_streams, projected_gaaf_state["weights"]
                 )
-                fusion_state = projected_ogaf_state
+                fusion_state = projected_gaaf_state
                 fusion_diagnostics = {
                     "method": (
                         "convex_advantage_reconstruction_of_projected_gradient"
                     ),
                     "raw_stream_coefficients": dict(
-                        projected_ogaf_state["weights"]
+                        projected_gaaf_state["weights"]
                     ),
                     "convex_stream_weights": dict(
-                        projected_ogaf_state["convex_weights"]
+                        projected_gaaf_state["convex_weights"]
                     ),
                 }
             else:
@@ -3194,24 +3194,24 @@ def run(config: dict, *, resume: Path | None = None) -> tuple[dict, Path]:
                     row[
                         "fixed_fusion_component_advantages"
                         if uses_fixed_fusion
-                        else "ogaf_component_advantages"
-                        if uses_ogaf
-                        else "projected_ogaf_component_advantages"
-                        if uses_projected_ogaf
+                        else "gaaf_component_advantages"
+                        if uses_gaaf
+                        else "projected_gaaf_component_advantages"
+                        if uses_projected_gaaf
                         else "marble_component_advantages"
                     ] = {
                         name: float(
                             component_streams[name][condition_index][candidate_index]
                         )
-                        for name in OGAF_COMPONENTS
+                        for name in GA-AF_COMPONENTS
                     }
                     row[
                         "fixed_fusion_fused_advantage"
                         if uses_fixed_fusion
-                        else "ogaf_fused_advantage"
-                        if uses_ogaf
-                        else "projected_ogaf_fused_advantage"
-                        if uses_projected_ogaf
+                        else "gaaf_fused_advantage"
+                        if uses_gaaf
+                        else "projected_gaaf_fused_advantage"
+                        if uses_projected_gaaf
                         else "marble_fused_advantage"
                     ] = float(
                         fused_advantages[candidate_index]
@@ -3220,19 +3220,19 @@ def run(config: dict, *, resume: Path | None = None) -> tuple[dict, Path]:
             fusion_name = (
                 "fixed_fusion"
                 if uses_fixed_fusion
-                else "ogaf"
-                if uses_ogaf
-                else "projected_ogaf"
-                if uses_projected_ogaf
+                else "gaaf"
+                if uses_gaaf
+                else "projected_gaaf"
+                if uses_projected_gaaf
                 else "marble"
             )
             geometry[fusion_name] = {
                 "component_advantages": component_diagnostics,
                 "gate_state": json.loads(json.dumps(fusion_state))
-                if uses_ogaf
+                if uses_gaaf
                 else None,
                 "state": json.loads(json.dumps(fusion_state))
-                if uses_fixed_fusion or uses_projected_ogaf or uses_marble
+                if uses_fixed_fusion or uses_projected_gaaf or uses_marble
                 else None,
                 "fusion": fusion_diagnostics,
                 "fused_advantage_statistics": {
@@ -3256,14 +3256,14 @@ def run(config: dict, *, resume: Path | None = None) -> tuple[dict, Path]:
             }
             if uses_fixed_fusion:
                 fixed_fusion_step = step_payload
-            elif uses_ogaf:
-                ogaf_step = {**step_payload, "gate_state": step_payload["state"]}
-            elif uses_projected_ogaf:
-                projected_ogaf_step = step_payload
+            elif uses_gaaf:
+                gaaf_step = {**step_payload, "gate_state": step_payload["state"]}
+            elif uses_projected_gaaf:
+                projected_gaaf_step = step_payload
             else:
                 marble_step = step_payload
         # Match GRPO's durability granularity: one batch append and one fsync
-        # per logical step.  For OGAF this occurs only after the actual fused
+        # per logical step.  For GA-AF this occurs only after the actual fused
         # training advantages have been attached.  The latest checkpoint
         # remains commit authority and resume truncates any uncommitted tail.
         _append_jsonl_batch(rollout_log, rollout_rows)
@@ -3337,10 +3337,10 @@ def run(config: dict, *, resume: Path | None = None) -> tuple[dict, Path]:
         }
         if fixed_fusion_step is not None:
             step_record["fixed_fusion"] = fixed_fusion_step
-        if ogaf_step is not None:
-            step_record["ogaf"] = ogaf_step
-        if projected_ogaf_step is not None:
-            step_record["projected_ogaf"] = projected_ogaf_step
+        if gaaf_step is not None:
+            step_record["gaaf"] = gaaf_step
+        if projected_gaaf_step is not None:
+            step_record["projected_gaaf"] = projected_gaaf_step
         if marble_step is not None:
             step_record["marble"] = marble_step
         checkpoint_started = time.perf_counter()
@@ -3357,8 +3357,8 @@ def run(config: dict, *, resume: Path | None = None) -> tuple[dict, Path]:
                 extra={
                     **extra,
                     "branch_lineage": branch_descriptor,
-                    "ogaf_gate_state": ogaf_gate_state,
-                    "projected_ogaf_state": projected_ogaf_state,
+                    "gaaf_gate_state": gaaf_gate_state,
+                    "projected_gaaf_state": projected_gaaf_state,
                     "marble_state": marble_state,
                 },
             )
@@ -3382,26 +3382,26 @@ def run(config: dict, *, resume: Path | None = None) -> tuple[dict, Path]:
             if "speaker" in geometry["reward_components"]
             else ""
         )
-        ogaf_text = ""
+        gaaf_text = ""
         if fixed_fusion_step is not None:
             state = fixed_fusion_step["state"]
-            ogaf_text = (
+            gaaf_text = (
                 " FixedFusion "
                 f"bS={state['weights']['speaker']:.4f} "
                 f"bC={state['weights']['speechbertscore']:.4f}"
             )
-        if ogaf_step is not None:
-            gate = ogaf_step["gate_state"]
-            ogaf_text = (
-                f" OGAF_cal={int(ogaf_step['calibration_performed'])} "
+        if gaaf_step is not None:
+            gate = gaaf_step["gate_state"]
+            gaaf_text = (
+                f" GA-AF_cal={int(gaaf_step['calibration_performed'])} "
                 f"wE={gate['convex_weights']['speaker']:.4f} "
                 f"wB={gate['convex_weights']['speechbertscore']:.4f}"
             )
-        if projected_ogaf_step is not None:
-            state = projected_ogaf_step["state"]
+        if projected_gaaf_step is not None:
+            state = projected_gaaf_step["state"]
             cosines = state["last_gradient_cosines"]
-            ogaf_text = (
-                f" POGAF_cal={int(projected_ogaf_step['calibration_performed'])} "
+            gaaf_text = (
+                f" PGA-AF_cal={int(projected_gaaf_step['calibration_performed'])} "
                 f"cosE={cosines['speaker']:+.3f} "
                 f"cosB={cosines['speechbertscore']:+.3f} "
                 f"wO={state['convex_weights']['dnsmos']:.4f} "
@@ -3410,7 +3410,7 @@ def run(config: dict, *, resume: Path | None = None) -> tuple[dict, Path]:
             )
         if marble_step is not None:
             state = marble_step["state"]
-            ogaf_text = (
+            gaaf_text = (
                 f" MARBLE_cal={int(marble_step['calibration_performed'])} "
                 f"aO={state['convex_weights']['dnsmos']:.4f} "
                 f"aE={state['convex_weights']['speaker']:.4f} "
@@ -3442,7 +3442,7 @@ def run(config: dict, *, resume: Path | None = None) -> tuple[dict, Path]:
             f"P808={geometry['dnsmos_components']['dnsmos_p808']['mean']:.5f} "
             f"{speaker_text} "
             f"{constraint_text} "
-            f"{ogaf_text} "
+            f"{gaaf_text} "
             f"Z={geometry['global_advantage_scale']:.6g} {advantage_text} "
             f"loss={loss_metrics['loss']:.6g} "
             f"grad={update_metrics['gradient_norm_clipped_return']:.6g} "
@@ -3535,12 +3535,12 @@ def run(config: dict, *, resume: Path | None = None) -> tuple[dict, Path]:
         specialization_comparison["comparison"] = (
             "fixed_fusion_minus_composite_control_common_validation_and_latents"
             if uses_fixed_fusion
-            else "ogaf_minus_composite_control_common_validation_and_latents"
-            if uses_ogaf
+            else "gaaf_minus_composite_control_common_validation_and_latents"
+            if uses_gaaf
             else (
-                "projected_ogaf_minus_composite_control_common_validation_and_latents"
+                "projected_gaaf_minus_composite_control_common_validation_and_latents"
             )
-            if uses_projected_ogaf
+            if uses_projected_gaaf
             else "raw_ovrl_specialist_minus_composite_control_common_validation_and_latents"
         )
         specialization_comparison["global_source_step"] = int(
@@ -3557,10 +3557,10 @@ def run(config: dict, *, resume: Path | None = None) -> tuple[dict, Path]:
             / (
                 "fixed_fusion_minus_composite_control.json"
                 if uses_fixed_fusion
-                else "ogaf_minus_composite_control.json"
-                if uses_ogaf
-                else "projected_ogaf_minus_composite_control.json"
-                if uses_projected_ogaf
+                else "gaaf_minus_composite_control.json"
+                if uses_gaaf
+                else "projected_gaaf_minus_composite_control.json"
+                if uses_projected_gaaf
                 else "specialist_minus_composite_control.json"
             ),
             {
@@ -3691,32 +3691,32 @@ def run(config: dict, *, resume: Path | None = None) -> tuple[dict, Path]:
             if uses_fixed_fusion
             else None
         ),
-        "ogaf": (
+        "gaaf": (
             {
-                "config": dict(ogaf_config),
-                "final_gate_state": ogaf_gate_state,
+                "config": dict(gaaf_config),
+                "final_gate_state": gaaf_gate_state,
                 "calibration_steps": [
                     int(row["step"])
                     for row in step_records
-                    if row.get("ogaf", {}).get("calibration_performed", False)
+                    if row.get("gaaf", {}).get("calibration_performed", False)
                 ],
             }
-            if uses_ogaf
+            if uses_gaaf
             else None
         ),
-        "projected_ogaf": (
+        "projected_gaaf": (
             {
-                "config": dict(projected_ogaf_config),
-                "final_state": projected_ogaf_state,
+                "config": dict(projected_gaaf_config),
+                "final_state": projected_gaaf_state,
                 "calibration_steps": [
                     int(row["step"])
                     for row in step_records
-                    if row.get("projected_ogaf", {}).get(
+                    if row.get("projected_gaaf", {}).get(
                         "calibration_performed", False
                     )
                 ],
             }
-            if uses_projected_ogaf
+            if uses_projected_gaaf
             else None
         ),
         "marble": (
@@ -3752,14 +3752,14 @@ def run(config: dict, *, resume: Path | None = None) -> tuple[dict, Path]:
         "paired_policy_gain": gain,
         "composite_control_evaluation": composite_control_evaluation,
         "specialist_minus_composite_control": specialization_comparison,
-        "ogaf_minus_composite_control": (
-            specialization_comparison if uses_ogaf else None
+        "gaaf_minus_composite_control": (
+            specialization_comparison if uses_gaaf else None
         ),
         "fixed_fusion_minus_composite_control": (
             specialization_comparison if uses_fixed_fusion else None
         ),
-        "projected_ogaf_minus_composite_control": (
-            specialization_comparison if uses_projected_ogaf else None
+        "projected_gaaf_minus_composite_control": (
+            specialization_comparison if uses_projected_gaaf else None
         ),
         "pilot_decision": pilot,
         "specialization_pilot_decision": specialization_pilot,
@@ -3793,4 +3793,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

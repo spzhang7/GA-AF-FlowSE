@@ -1,4 +1,4 @@
-"""Gradient-Aligned AdvantageFlow (GA-AF), also called OGAF in the paper."""
+"""Gradient-Aligned AdvantageFlow (GA-AF), also called GA-AF in the paper."""
 
 from .gradient_aligned_advantage_flow import (
     COMPONENTS,

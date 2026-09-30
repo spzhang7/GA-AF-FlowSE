@@ -3,12 +3,11 @@
 ## Forward-Process Reinforcement Learning for Flow-Matching Speech Enhancement
 
 [![CI](https://github.com/spzhang7/GA-AF-FlowSE/actions/workflows/quality.yml/badge.svg)](https://github.com/spzhang7/GA-AF-FlowSE/actions/workflows/quality.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
 
 This repository is the reference implementation of **Gradient-Aligned
-AdvantageFlow (GA-AF)** for FlowSE-based speech enhancement. GA-AF is also
-called **OGAF** in the code and experiment configurations.
+AdvantageFlow (GA-AF)** for FlowSE-based speech enhancement. In the code,
+the method uses the `gaaf` package and configuration namespace.
 
 The method performs reward-guided post-training entirely through
 forward-process regression. It keeps FlowSE's deterministic ODE inference
@@ -22,7 +21,7 @@ induced gradient alignment instead of using fixed reward weights.
 ## Highlights
 
 - Deterministic FlowSE ODE rollouts during post-training and inference.
-- Ordinary AdvantageFlow (AF) and Gradient-Aligned AdvantageFlow (GA-AF/OGAF).
+- Ordinary AdvantageFlow (AF) and Gradient-Aligned AdvantageFlow (GA-AF).
 - A controlled FlowSE-GRPO implementation for the paper comparison.
 - Composite reward from DNSMOS OVRL, ERes2Net speaker similarity, and
   SpeechBERTScore content fidelity.
@@ -33,7 +32,7 @@ induced gradient alignment instead of using fixed reward weights.
 
 ## Method overview
 
-`mermaid
+```mermaid
 flowchart LR
     A[Noisy speech] --> B[FlowSE DiT]
     B --> C[Deterministic ODE rollout]
@@ -45,7 +44,7 @@ flowchart LR
     H --> G
     G --> I[LoRA / EMA update]
     I --> B
-`
+```
 
 For each noisy condition, the rollout generates K=8 candidates. AF uses
 relative candidate advantages for forward-process regression. GA-AF computes
@@ -76,12 +75,12 @@ reported metrics rather than relying on OVRL alone.
 
 ## Repository layout
 
-`text
+```text
 GA-AF-FlowSE/
 ├── flowse/                 # Third-party FlowSE baseline
 ├── rl/
 │   ├── af/                 # Ordinary AdvantageFlow
-│   ├── gaaf/               # GA-AF/OGAF gradient-alignment extension
+│   ├── gaaf/               # GA-AF gradient-alignment extension
 │   ├── grpo/               # Controlled GRPO comparison
 │   ├── common/             # Shared data, FlowSE, LoRA, and protocol modules
 │   └── rewards/            # Composite rewards and calibration utilities
@@ -91,34 +90,34 @@ GA-AF-FlowSE/
 ├── pretrainmodel/          # Pretrained evaluator download instructions
 ├── checkpoints/            # Checkpoint placement and release instructions
 └── docs/                   # Upstream and compatibility notes
-`
+```
 
 ## Installation
 
 Use Python 3.10 or newer. The single requirements.txt contains runtime,
 evaluation, test, and lint dependencies:
 
-`bash
+```bash
 python -m pip install -r requirements.txt
-`
+```
 
 For CUDA 12.1, install the matching PyTorch wheels first when your platform
 does not select them automatically:
 
-`bash
+```bash
 python -m pip install torch==2.2.0+cu121 torchaudio==2.2.0+cu121 \
   --index-url https://download.pytorch.org/whl/cu121
 python -m pip install -r requirements.txt
-`
+```
 
 CPU-only users can install the ordinary torch==2.2.0 and
 torchaudio==2.2.0 entries from the requirements file.
 
 Run the method-side tests with:
 
-`bash
+```bash
 python -m pytest -q rl/af/tests rl/grpo/tests
-`
+```
 
 ## Data and pretrained models
 
@@ -135,13 +134,13 @@ FlowSE checkpoints, Vocos weights, or training artifacts.
 
 The public composite reward uses the DNS10s 8192-condition calibration:
 
-`text
+```text
 DNSMOS OVRL:       0.6 * (DNSMOS_OVRL / 4) / 0.07032371343108539
 ERes2Net speaker:      1.0 * ERes2Net / 0.13865593039460408
 SpeechBERTScore:       1.0 * SpeechBERTScore / 0.09550272361009968
 
 source_nfe=10, std_ddof=0, dnsmos_divisor=4.0
-`
+```
 
 ## Checkpoints
 
@@ -157,7 +156,7 @@ checkpoints/README.md.
 | flowse_wenetspeech4tts_premium_best.pt.tar | Original FlowSE baseline; upstream Hugging Face |
 | flowse_sft20k_step020000.pt | 20k-step supervised FlowSE base |
 | af_libritts_dns10s_step005000.pt | Ordinary AF checkpoint |
-| gaaf_libritts_dns10s_ogaf_0_to_5000_step005000.pt | GA-AF/OGAF checkpoint |
+| gaaf_libritts_dns10s_0_to_5000_step005000.pt | GA-AF checkpoint |
 | grpo_voicebank_controlled_latest.pt | Controlled GRPO checkpoint |
 
 The release assets are intentionally not committed to Git because of their
@@ -168,22 +167,22 @@ checkpoints/README.md for the expected local paths.
 
 Smoke configurations validate the public code path with a small budget:
 
-`bash
+```bash
 python scripts/train_af.py --config configs/af/af_smoke.yaml
 python scripts/train_af.py --config configs/af/gaaf_smoke.yaml
 python scripts/train_grpo.py \
   --config configs/grpo/grpo_libritts_dns10s_4gpu_production_geometry_smoke.yaml
-`
+```
 
 For the paper-scale AF and GA-AF runs:
 
-`bash
+```bash
 python scripts/train_af.py \
   --config configs/af/af_libritts_dns10s_sft20k_5000step.yaml
 
 python scripts/train_af.py \
-  --config configs/af/gaaf_libritts_dns10s_sft20k_ogaf_0_to_5000.yaml
-`
+  --config configs/af/gaaf_libritts_dns10s_sft20k_0_to_5000.yaml
+```
 
 The controlled GRPO templates are under configs/grpo/. Smoke runs only
 require the runnable public configuration and local data/model paths.
@@ -195,22 +194,22 @@ calibration checks used for the paper experiments.
 Use the tools under tools/ for paired enhancement metrics and DNSMOS
 summaries. FlowSE inference uses the pinned baseline entry point:
 
-`bash
+```bash
 python flowse/infer.py -conf <your-flowse-config.yaml>
-`
+```
 
 Evaluation uses deterministic FlowSE Euler sampling at NFE=32 in the paper
 configuration.
 
-## FlowSE baseline and licensing
+## FlowSE baseline and attribution
 
 FlowSE is third-party code and is kept under flowse/ as a separate baseline
 component. The upstream repository, fixed commit, local compatibility patch,
 and citation are documented in
 THIRD_PARTY_NOTICES.md and docs/FLOWSE_UPSTREAM.md.
 
-The self-authored GA-AF/AF/GRPO adapter and utility code is released under the
-MIT License. Third-party code, evaluator models, Vocos, datasets, and
+The self-authored GA-AF/AF/GRPO adapter and utility code is covered by the
+root LICENSE file. Third-party code, evaluator models, Vocos, datasets, and
 checkpoints remain subject to their own licenses and terms.
 
 ## Citation
@@ -218,7 +217,7 @@ checkpoints remain subject to their own licenses and terms.
 If you use this repository, please cite the paper and the FlowSE baseline.
 The repository metadata is in CITATION.cff.
 
-`bibtex
+```bibtex
 @misc{zhang2026forwardprocess,
   title={Forward-Process Reinforcement Learning for Flow-Matching Speech Enhancement},
   author={Shuaipeng Zhang and Hang Chen and Jun Du and Qing Wang and
@@ -227,6 +226,6 @@ The repository metadata is in CITATION.cff.
   note={GA-AF-FlowSE},
   url={https://github.com/spzhang7/GA-AF-FlowSE}
 }
-`
+```
 
 For FlowSE, please also use the citation in THIRD_PARTY_NOTICES.md.

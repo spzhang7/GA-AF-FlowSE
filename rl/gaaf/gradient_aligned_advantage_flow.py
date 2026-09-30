@@ -1,6 +1,6 @@
 """Gradient-space fusion primitives for speech AdvantageFlow.
 
-The module contains the original OVRL-gated OGAF path, an OVRL-primary
+The module contains the original OVRL-gated GA-AF path, an OVRL-primary
 asymmetric projection path, and the OVRL-preferred MARBLE simplex solver.
 Keeping them together makes their shared component-advantage construction
 explicit while preserving checkpoint compatibility for existing runs.
@@ -310,13 +310,13 @@ def component_advantage_streams(
         candidate = int(row["candidate_index"])
         key = (condition, candidate)
         if key in observed:
-            raise ValueError(f"duplicate OGAF rollout endpoint: {key}")
+            raise ValueError(f"duplicate GA-AF rollout endpoint: {key}")
         observed.add(key)
         components = row.get("reward_components", {}).get("raw")
         if not isinstance(components, Mapping) or not set(COMPONENTS).issubset(
             components
         ):
-            raise ValueError("OGAF rollout lacks three raw composite components")
+            raise ValueError("GA-AF rollout lacks three raw composite components")
         raw[condition, candidate] = [float(components[name]) for name in COMPONENTS]
     expected = {
         (condition, candidate)
@@ -324,7 +324,7 @@ def component_advantage_streams(
         for candidate in range(candidates)
     }
     if observed != expected or not np.isfinite(raw).all():
-        raise ValueError("OGAF rollout does not exactly cover a finite LxK batch")
+        raise ValueError("GA-AF rollout does not exactly cover a finite LxK batch")
 
     arrays = {}
     pooled_scales = {}
@@ -337,7 +337,7 @@ def component_advantage_streams(
         minimum = float(advantage_config["minimum_global_scale"])
         if scale <= minimum:
             if name == PRIMARY:
-                raise ValueError("OGAF primary OVRL has no complete-batch signal")
+                raise ValueError("GA-AF primary OVRL has no complete-batch signal")
             arrays[name] = np.zeros_like(rewards)
             pooled_scales[name] = scale
             clipped_fractions[name] = 0.0
@@ -375,12 +375,12 @@ def replace_advantages(
     stream: Sequence[torch.Tensor],
 ) -> list[RolloutTrainingCondition]:
     if len(conditions) != len(stream):
-        raise ValueError("OGAF advantage stream length differs from conditions")
+        raise ValueError("GA-AF advantage stream length differs from conditions")
     output = []
     for index, item in enumerate(conditions):
         advantage = stream[index].detach().float().cpu()
         if advantage.shape != item.advantages.shape or not torch.isfinite(advantage).all():
-            raise ValueError(f"invalid OGAF advantage stream for {item.utterance}")
+            raise ValueError(f"invalid GA-AF advantage stream for {item.utterance}")
         output.append(
             RolloutTrainingCondition(
                 utterance=item.utterance,
@@ -397,23 +397,23 @@ def convex_fuse_streams(
     streams: Mapping[str, Sequence[torch.Tensor]], weights: Mapping[str, float]
 ) -> list[torch.Tensor]:
     if set(streams) != set(COMPONENTS) or set(weights) != set(COMPONENTS):
-        raise ValueError("OGAF fusion requires exactly three component streams")
+        raise ValueError("GA-AF fusion requires exactly three component streams")
     parsed = {name: float(weights[name]) for name in COMPONENTS}
     if any(not math.isfinite(value) or value < 0.0 for value in parsed.values()):
-        raise ValueError("OGAF fusion weights must be finite and non-negative")
+        raise ValueError("GA-AF fusion weights must be finite and non-negative")
     total = float(sum(parsed.values()))
     if total <= 0.0:
-        raise ValueError("OGAF fusion weights cannot all be zero")
+        raise ValueError("GA-AF fusion weights cannot all be zero")
     length = len(streams[PRIMARY])
     if any(len(streams[name]) != length for name in COMPONENTS):
-        raise ValueError("OGAF component stream lengths differ")
+        raise ValueError("GA-AF component stream lengths differ")
     output = []
     for index in range(length):
         fused = sum(
             parsed[name] * streams[name][index] for name in COMPONENTS
         ) / total
         if not torch.isfinite(fused).all() or float(fused.abs().max()) > 1.0 + 1.0e-6:
-            raise ValueError("convex OGAF advantage escaped the frozen [-1,1] range")
+            raise ValueError("convex GA-AF advantage escaped the frozen [-1,1] range")
         output.append(fused.detach().float().cpu())
     return output
 
@@ -506,19 +506,19 @@ def reward_induced_gradients(
     """Compute ``q_m = grad L_AF(A_m) - grad L_AF(0)`` for every component."""
 
     if set(streams) != set(COMPONENTS):
-        raise ValueError("OGAF calibration requires exactly three component streams")
+        raise ValueError("GA-AF calibration requires exactly three component streams")
     parameters = list(named_parameters)
     if not parameters:
-        raise ValueError("OGAF calibration found no LoRA parameters")
+        raise ValueError("GA-AF calibration found no LoRA parameters")
     names = [str(name) for name, _ in parameters]
     if len(names) != len(set(names)):
-        raise ValueError("OGAF LoRA parameter names are not unique")
+        raise ValueError("GA-AF LoRA parameter names are not unique")
 
     def capture(stream: Sequence[torch.Tensor]) -> tuple[dict[str, torch.Tensor], float]:
         zero_grad()
         loss = loss_function(stream)
         if not isinstance(loss, torch.Tensor) or loss.ndim != 0:
-            raise ValueError("OGAF loss callback must return a scalar tensor")
+            raise ValueError("GA-AF loss callback must return a scalar tensor")
         gradients = {}
         for name, parameter in parameters:
             gradient = parameter.grad
@@ -526,20 +526,20 @@ def reward_induced_gradients(
                 gradients[name] = torch.zeros_like(parameter, device="cpu")
             else:
                 if not torch.isfinite(gradient).all():
-                    raise ValueError(f"non-finite OGAF gradient for {name}")
+                    raise ValueError(f"non-finite GA-AF gradient for {name}")
                 gradients[name] = gradient.detach().float().cpu().clone()
         return gradients, float(loss.detach().item())
 
     first = streams[PRIMARY]
     if not first:
-        raise ValueError("OGAF calibration stream is empty")
+        raise ValueError("GA-AF calibration stream is empty")
     shapes = [tuple(value.shape) for value in first]
     if any(
         len(streams[name]) != len(first)
         or [tuple(value.shape) for value in streams[name]] != shapes
         for name in COMPONENTS
     ):
-        raise ValueError("OGAF calibration stream geometry differs by component")
+        raise ValueError("GA-AF calibration stream geometry differs by component")
     zero_stream = [torch.zeros_like(value) for value in first]
     baseline, baseline_loss = capture(zero_stream)
     outputs = {}
@@ -558,7 +558,7 @@ def gradient_dot(
     left: Mapping[str, torch.Tensor], right: Mapping[str, torch.Tensor]
 ) -> float:
     if set(left) != set(right):
-        raise ValueError("OGAF gradient states have different keys")
+        raise ValueError("GA-AF gradient states have different keys")
     return float(
         sum(
             torch.sum(left[name].double() * right[name].double()).item()
@@ -576,10 +576,10 @@ def gradient_cosine(
 ) -> float:
     denominator = gradient_norm(left) * gradient_norm(right)
     if denominator <= 1.0e-15:
-        raise ValueError("OGAF reward-induced gradient has zero norm")
+        raise ValueError("GA-AF reward-induced gradient has zero norm")
     cosine = float(gradient_dot(left, right) / denominator)
     if not math.isfinite(cosine):
-        raise ValueError("OGAF gradient cosine is non-finite")
+        raise ValueError("GA-AF gradient cosine is non-finite")
     return max(-1.0, min(1.0, cosine))
 
 
@@ -587,10 +587,10 @@ def observed_gate_weights(
     gradients: Mapping[str, Mapping[str, torch.Tensor]], *, auxiliary_cap: float
 ) -> tuple[dict[str, float], dict[str, float], dict[str, float]]:
     if not 0.0 <= float(auxiliary_cap) <= 1.0:
-        raise ValueError("OGAF auxiliary cap must lie in [0,1]")
+        raise ValueError("GA-AF auxiliary cap must lie in [0,1]")
     primary_norm = gradient_norm(gradients[PRIMARY])
     if primary_norm <= 1.0e-15:
-        raise ValueError("OGAF primary reward-induced gradient has zero norm")
+        raise ValueError("GA-AF primary reward-induced gradient has zero norm")
     norms = {PRIMARY: primary_norm} | {
         name: gradient_norm(gradients[name]) for name in AUXILIARIES
     }
@@ -609,7 +609,7 @@ def observed_gate_weights(
     return weights, cosines, norms
 
 
-def projected_ogaf_observed_weights(
+def projected_gaaf_observed_weights(
     gradients: Mapping[str, Mapping[str, torch.Tensor]],
     *,
     auxiliary_target_norm_ratio: float,
@@ -633,26 +633,26 @@ def projected_ogaf_observed_weights(
 
     if set(gradients) != set(COMPONENTS):
         raise ValueError(
-            "projected OGAF calibration requires exactly three component gradients"
+            "projected GA-AF calibration requires exactly three component gradients"
         )
     target_ratio = float(auxiliary_target_norm_ratio)
     coefficient_cap = float(auxiliary_coefficient_cap)
     epsilon = float(projection_epsilon)
     if not math.isfinite(target_ratio) or not 0.0 <= target_ratio <= 1.0:
         raise ValueError(
-            "projected OGAF auxiliary_target_norm_ratio must lie in [0,1]"
+            "projected GA-AF auxiliary_target_norm_ratio must lie in [0,1]"
         )
     if not math.isfinite(coefficient_cap) or not 0.0 <= coefficient_cap <= 1.0:
         raise ValueError(
-            "projected OGAF auxiliary_coefficient_cap must lie in [0,1]"
+            "projected GA-AF auxiliary_coefficient_cap must lie in [0,1]"
         )
     if not math.isfinite(epsilon) or epsilon <= 0.0:
-        raise ValueError("projected OGAF projection_epsilon must be positive")
+        raise ValueError("projected GA-AF projection_epsilon must be positive")
 
     norms = {name: gradient_norm(gradients[name]) for name in COMPONENTS}
     primary_norm = norms[PRIMARY]
     if primary_norm <= 1.0e-15:
-        raise ValueError("projected OGAF primary OVRL gradient has zero norm")
+        raise ValueError("projected GA-AF primary OVRL gradient has zero norm")
     primary_squared_norm = gradient_dot(gradients[PRIMARY], gradients[PRIMARY])
 
     cosines: dict[str, float] = {}
@@ -722,7 +722,7 @@ def projected_ogaf_observed_weights(
     return weights, cosines, norms, diagnostics
 
 
-def update_projected_ogaf_state(
+def update_projected_gaaf_state(
     previous: Mapping | None,
     *,
     observed_weights: Mapping[str, float],
@@ -738,31 +738,31 @@ def update_projected_ogaf_state(
     decay = float(ema_decay)
     if not math.isfinite(decay) or not 0.0 <= decay < 1.0:
         raise ValueError(
-            "projected OGAF coefficient EMA decay must lie in [0,1)"
+            "projected GA-AF coefficient EMA decay must lie in [0,1)"
         )
     if set(observed_weights) != set(COMPONENTS):
-        raise ValueError("projected OGAF observed weights are incomplete")
+        raise ValueError("projected GA-AF observed weights are incomplete")
     observed = {name: float(observed_weights[name]) for name in COMPONENTS}
     if any(
         not math.isfinite(value) or value < 0.0 for value in observed.values()
     ) or observed[PRIMARY] <= 0.0:
-        raise ValueError("invalid projected OGAF observed weights")
+        raise ValueError("invalid projected GA-AF observed weights")
     if set(cosines) != set(AUXILIARIES) or any(
         not math.isfinite(float(value)) for value in cosines.values()
     ):
-        raise ValueError("invalid projected OGAF gradient cosines")
+        raise ValueError("invalid projected GA-AF gradient cosines")
     if set(gradient_norms) != set(COMPONENTS) or any(
         not math.isfinite(float(value)) or float(value) < 0.0
         for value in gradient_norms.values()
     ):
-        raise ValueError("invalid projected OGAF gradient norms")
+        raise ValueError("invalid projected GA-AF gradient norms")
     if not isinstance(diagnostics, Mapping):
-        raise ValueError("invalid projected OGAF projection diagnostics")
+        raise ValueError("invalid projected GA-AF projection diagnostics")
     projection_boosts = diagnostics.get("projection_boosts")
     if not isinstance(projection_boosts, Mapping) or set(
         projection_boosts
     ) != set(AUXILIARIES):
-        raise ValueError("projected OGAF diagnostics lack projection boosts")
+        raise ValueError("projected GA-AF diagnostics lack projection boosts")
     projection_boosts = {
         name: float(projection_boosts[name]) for name in AUXILIARIES
     }
@@ -770,7 +770,7 @@ def update_projected_ogaf_state(
         not math.isfinite(value) or value < 0.0
         for value in projection_boosts.values()
     ):
-        raise ValueError("invalid projected OGAF projection boosts")
+        raise ValueError("invalid projected GA-AF projection boosts")
 
     if previous is None:
         auxiliary_weights = {
@@ -778,7 +778,7 @@ def update_projected_ogaf_state(
         }
         calibration_index = 1
     else:
-        validate_projected_ogaf_state(previous)
+        validate_projected_gaaf_state(previous)
         old = previous["weights"]
         auxiliary_weights = {
             name: decay * float(old[name]) + (1.0 - decay) * observed[name]
@@ -801,7 +801,7 @@ def update_projected_ogaf_state(
     }
     total = float(sum(weights.values()))
     if not math.isfinite(total) or total <= 0.0:
-        raise ValueError("projected OGAF weights cannot all be zero")
+        raise ValueError("projected GA-AF weights cannot all be zero")
     convex = {name: float(weights[name] / total) for name in COMPONENTS}
     return {
         "schema_version": 1,
@@ -822,7 +822,7 @@ def update_projected_ogaf_state(
     }
 
 
-def validate_projected_ogaf_state(state: Mapping) -> None:
+def validate_projected_gaaf_state(state: Mapping) -> None:
     required = {
         "schema_version",
         "calibration_index",
@@ -837,41 +837,41 @@ def validate_projected_ogaf_state(state: Mapping) -> None:
         "coefficient_ema_decay",
     }
     if set(state) != required or int(state["schema_version"]) != 1:
-        raise ValueError("invalid resumed projected OGAF state schema")
+        raise ValueError("invalid resumed projected GA-AF state schema")
     for key in ("weights", "convex_weights", "last_observed_weights"):
         value = state[key]
         if not isinstance(value, Mapping) or set(value) != set(COMPONENTS):
-            raise ValueError(f"invalid resumed projected OGAF {key}")
+            raise ValueError(f"invalid resumed projected GA-AF {key}")
         if any(
             not math.isfinite(float(item)) or float(item) < 0.0
             for item in value.values()
         ):
-            raise ValueError(f"invalid resumed projected OGAF {key} values")
+            raise ValueError(f"invalid resumed projected GA-AF {key} values")
     if float(state["weights"][PRIMARY]) <= 0.0:
-        raise ValueError("projected OGAF primary weight must be positive")
+        raise ValueError("projected GA-AF primary weight must be positive")
     if abs(sum(float(v) for v in state["convex_weights"].values()) - 1.0) > 1.0e-5:
-        raise ValueError("projected OGAF convex weights must sum to one")
+        raise ValueError("projected GA-AF convex weights must sum to one")
     cosines = state["last_gradient_cosines"]
     if not isinstance(cosines, Mapping) or set(cosines) != set(AUXILIARIES):
-        raise ValueError("invalid resumed projected OGAF gradient cosines")
+        raise ValueError("invalid resumed projected GA-AF gradient cosines")
     if any(not math.isfinite(float(value)) for value in cosines.values()):
-        raise ValueError("invalid resumed projected OGAF gradient cosine values")
+        raise ValueError("invalid resumed projected GA-AF gradient cosine values")
     norms = state["last_reward_induced_gradient_norms"]
     if not isinstance(norms, Mapping) or set(norms) != set(COMPONENTS):
-        raise ValueError("invalid resumed projected OGAF gradient norms")
+        raise ValueError("invalid resumed projected GA-AF gradient norms")
     if any(
         not math.isfinite(float(value)) or float(value) < 0.0
         for value in norms.values()
     ):
-        raise ValueError("invalid resumed projected OGAF gradient norm values")
+        raise ValueError("invalid resumed projected GA-AF gradient norm values")
     diagnostics = state["last_projection_diagnostics"]
     if not isinstance(diagnostics, Mapping):
-        raise ValueError("invalid resumed projected OGAF diagnostics")
+        raise ValueError("invalid resumed projected GA-AF diagnostics")
     projection_boosts = diagnostics.get("projection_boosts")
     if not isinstance(projection_boosts, Mapping) or set(
         projection_boosts
     ) != set(AUXILIARIES):
-        raise ValueError("invalid resumed projected OGAF projection boosts")
+        raise ValueError("invalid resumed projected GA-AF projection boosts")
     expected_primary = 1.0 + sum(
         float(state["weights"][name]) * float(projection_boosts[name])
         for name in AUXILIARIES
@@ -883,27 +883,27 @@ def validate_projected_ogaf_state(state: Mapping) -> None:
         abs_tol=1.0e-12,
     ):
         raise ValueError(
-            "projected OGAF primary weight does not reconstruct the projection"
+            "projected GA-AF primary weight does not reconstruct the projection"
         )
     decay = float(state["coefficient_ema_decay"])
     if not math.isfinite(decay) or not 0.0 <= decay < 1.0:
-        raise ValueError("invalid resumed projected OGAF EMA decay")
+        raise ValueError("invalid resumed projected GA-AF EMA decay")
 
 
-def projected_ogaf_calibration_due(
+def projected_gaaf_calibration_due(
     state: Mapping | None, *, local_step: int, refresh_interval: int
 ) -> bool:
-    """Resume-invariant calibration cadence for projected OGAF."""
+    """Resume-invariant calibration cadence for projected GA-AF."""
 
     if local_step < 1 or refresh_interval < 1:
         raise ValueError(
-            "projected OGAF calibration step and interval must be positive"
+            "projected GA-AF calibration step and interval must be positive"
         )
     if state is None:
         if local_step != 1:
-            raise ValueError("missing projected OGAF state after the first local step")
+            raise ValueError("missing projected GA-AF state after the first local step")
         return True
-    validate_projected_ogaf_state(state)
+    validate_projected_gaaf_state(state)
     return (local_step - 1) % refresh_interval == 0
 
 
@@ -918,16 +918,16 @@ def update_gate_state(
     global_step: int,
 ) -> dict:
     if not 0.0 <= float(ema_decay) < 1.0:
-        raise ValueError("OGAF coefficient EMA decay must lie in [0,1)")
+        raise ValueError("GA-AF coefficient EMA decay must lie in [0,1)")
     if set(observed_weights) != set(COMPONENTS):
-        raise ValueError("OGAF observed weights are incomplete")
+        raise ValueError("GA-AF observed weights are incomplete")
     if previous is None:
         weights = {name: float(observed_weights[name]) for name in COMPONENTS}
         calibration_index = 1
     else:
         old = previous.get("weights")
         if not isinstance(old, Mapping) or set(old) != set(COMPONENTS):
-            raise ValueError("resumed OGAF gate state has invalid weights")
+            raise ValueError("resumed GA-AF gate state has invalid weights")
         weights = {
             PRIMARY: 1.0,
             **{
@@ -977,15 +977,15 @@ def validate_gate_state(state: Mapping) -> None:
         "coefficient_ema_decay",
     }
     if set(state) != required or int(state["schema_version"]) != 1:
-        raise ValueError("invalid resumed OGAF gate-state schema")
+        raise ValueError("invalid resumed GA-AF gate-state schema")
     weights = state["weights"]
     if not isinstance(weights, Mapping) or set(weights) != set(COMPONENTS):
-        raise ValueError("invalid resumed OGAF weights")
+        raise ValueError("invalid resumed GA-AF weights")
     if float(weights[PRIMARY]) != 1.0 or any(
         not math.isfinite(float(value)) or float(value) < 0.0
         for value in weights.values()
     ):
-        raise ValueError("invalid resumed OGAF weight values")
+        raise ValueError("invalid resumed GA-AF weight values")
 
 
 def calibration_due(
@@ -994,10 +994,10 @@ def calibration_due(
     """Use a global local-step cadence that is invariant to resume boundaries."""
 
     if local_step < 1 or refresh_interval < 1:
-        raise ValueError("OGAF calibration step and interval must be positive")
+        raise ValueError("GA-AF calibration step and interval must be positive")
     if state is None:
         if local_step != 1:
-            raise ValueError("missing OGAF gate state after the first local step")
+            raise ValueError("missing GA-AF gate state after the first local step")
         return True
     validate_gate_state(state)
     return (local_step - 1) % refresh_interval == 0

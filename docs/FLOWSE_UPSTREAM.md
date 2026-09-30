@@ -1,7 +1,7 @@
 # FlowSE 上游来源与本地适配
 
 本项目把 FlowSE 作为独立的 baseline 层，源码已经放在仓库顶层
-`flowse/`。`rl/` 只包含我们自己的 AF/GA-AF/OGAF 和适配代码。
+`flowse/`。`rl/` 只包含我们自己的 AF/GA-AF 和适配代码。
 
 ```powershell
 python scripts/fetch_flowse.py --verify-only
@@ -48,4 +48,3 @@ python scripts/fetch_flowse.py --verify-only
   url={https://arxiv.org/abs/2505.19476}
 }
 ```
-
