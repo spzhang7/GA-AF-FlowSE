@@ -58,7 +58,7 @@ from .advantage_flow import (
     stable_seed,
 )
 from rl.gaaf.gradient_aligned_advantage_flow import (
-    COMPONENTS as GA-AF_COMPONENTS,
+    COMPONENTS as GAAF_COMPONENTS,
     calibration_due as gaaf_calibration_due,
     component_advantage_streams,
     convex_fuse_streams,
@@ -2994,7 +2994,7 @@ def run(config: dict, *, resume: Path | None = None) -> tuple[dict, Path]:
             if uses_fixed_fusion:
                 fixed_weights = {
                     name: float(fixed_fusion_config["weights"][name])
-                    for name in GA-AF_COMPONENTS
+                    for name in GAAF_COMPONENTS
                 }
                 fused_stream = convex_fuse_streams(component_streams, fixed_weights)
                 total_fixed_weight = float(sum(fixed_weights.values()))
@@ -3203,7 +3203,7 @@ def run(config: dict, *, resume: Path | None = None) -> tuple[dict, Path]:
                         name: float(
                             component_streams[name][condition_index][candidate_index]
                         )
-                        for name in GA-AF_COMPONENTS
+                        for name in GAAF_COMPONENTS
                     }
                     row[
                         "fixed_fusion_fused_advantage"
