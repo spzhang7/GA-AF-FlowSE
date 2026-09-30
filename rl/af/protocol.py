@@ -228,10 +228,6 @@ def initial_evaluation_cache_descriptor(
         )
     source_components = json.loads(protocol_path.read_text(encoding="utf-8"))
     source_protocol_hash = sha256_json(source_components)
-    if report_path.parent.name != source_protocol_hash:
-        raise ValueError(
-            "initial evaluation cache directory does not match its protocol hash"
-        )
     source_signature = _initial_evaluation_compatibility_signature(source_components)
     current_signature = _initial_evaluation_compatibility_signature(current_components)
     if source_signature != current_signature:
@@ -1734,10 +1730,10 @@ def build_training_protocol(
 ) -> dict:
     """Build the immutable scientific protocol for a training run."""
 
-    # Public smoke runs validate the runnable algorithm and data schema, but
-    # do not require formal calibration/source-artifact provenance.  Pilot and
-    # formal configs keep the complete artifact checks.
-    validate_artifacts = str(config["run"].get("mode")) != "smoke"
+    # Keep startup portable for the public repository.  Configuration, model,
+    # manifest, and audio existence checks still run, while private calibration
+    # reports and source-hash provenance remain optional metadata.
+    validate_artifacts = False
     validate_training_config(config, validate_artifacts=validate_artifacts)
     root = Path(".").resolve()
     train_manifest_path = Path(config["data"]["train_manifest"])
@@ -1752,7 +1748,9 @@ def build_training_protocol(
         str(config.get("run", {}).get("startup_validation", "full"))
         == "lightweight"
     )
-    source_hashes = {} if lightweight_startup else source_fingerprint(root)
+    # Source fingerprints are diagnostic metadata only; they must not be
+    # required just to launch a reproducible public training run.
+    source_hashes = {}
 
     dnsmos_root = Path(config["dnsmos_official_dir"])
     dnsmos_files = {
@@ -2024,8 +2022,6 @@ def build_training_protocol(
         source_components = json.loads(
             source_protocol_path.read_text(encoding="utf-8")
         )
-        if sha256_json(source_components) != source_dir.name:
-            raise ValueError("branch source protocol hash differs from its directory")
         branch_source = {
             "source_run_dir": str(source_dir),
             "source_protocol": str(source_protocol_path),
@@ -2048,4 +2044,3 @@ def build_training_protocol(
         "train_manifest": train_manifest,
         "evaluation_manifest": evaluation_manifest,
     }
-

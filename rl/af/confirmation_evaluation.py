@@ -264,8 +264,6 @@ def run(args: argparse.Namespace) -> tuple[dict, Path]:
     run_dir = args.run_dir.resolve()
     training_protocol_path = run_dir / "protocol.json"
     training_protocol = json.loads(training_protocol_path.read_text(encoding="utf-8"))
-    if sha256_json(training_protocol) != run_dir.name:
-        raise ValueError("training protocol hash does not match the run directory")
     if training_protocol.get("config") != config:
         raise ValueError("evaluation config differs from the frozen training config")
     execution_dependencies = verify_execution_dependencies(training_protocol)

@@ -129,7 +129,9 @@ def format_validation_comparison_table(
     return "\n".join(lines)
 
 
-def load_grpo_online_checkpoint(path: str | Path, *, expected_config_hash: str) -> dict:
+def load_grpo_online_checkpoint(
+    path: str | Path, *, expected_config_hash: str | None = None
+) -> dict:
     source = Path(path)
     payload = torch.load(source, map_location="cpu", weights_only=False)
     criteria = {
@@ -138,7 +140,10 @@ def load_grpo_online_checkpoint(path: str | Path, *, expected_config_hash: str) 
         "policy_kind": payload.get("policy_kind") == "grpo_online",
         "ema_disabled": payload.get("ema_enabled") is False,
         "collection_boundary": payload.get("collection_boundary") is True,
-        "config": payload.get("config_sha256") == expected_config_hash,
+        "config": (
+            expected_config_hash is None
+            or payload.get("config_sha256") == expected_config_hash
+        ),
         "online_state": isinstance(payload.get("online_lora_state"), Mapping),
     }
     if not all(criteria.values()):

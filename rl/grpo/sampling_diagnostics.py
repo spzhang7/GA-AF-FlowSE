@@ -1156,7 +1156,9 @@ def run(config: dict) -> tuple[dict, Path]:
     tasks = _select_tasks(config)
     partitions = partition_utterances(tasks, int(config["resources"]["world_size"]))
     config_hash = _canonical_hash(config)
-    output_dir = Path(config["output_root"]) / config_hash
+    # Diagnostics share the same human-readable run directory as training;
+    # the config fingerprint remains in the report metadata when needed.
+    output_dir = Path(config["output_root"])
     if output_dir.exists() and any(output_dir.iterdir()):
         raise FileExistsError(f"diagnostic output already exists: {output_dir}")
     output_dir.mkdir(parents=True, exist_ok=True)

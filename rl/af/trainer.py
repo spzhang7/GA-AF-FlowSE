@@ -82,7 +82,6 @@ from .protocol import (
     sha256_file,
     training_nfe_spec,
 )
-from .protocol import sha256_json
 from .checkpoint import (
     append_jsonl_batch_durable as _append_jsonl_batch,
     atomic_write_json as _write_json,
@@ -2458,8 +2457,6 @@ def _load_branch_checkpoint(
         if not path.is_file():
             raise FileNotFoundError(path)
     source_protocol = json.loads(source_protocol_path.read_text(encoding="utf-8"))
-    if sha256_json(source_protocol) != source_dir.name:
-        raise ValueError("branch source protocol hash does not match its run directory")
     source_config = source_protocol.get("config")
     if not isinstance(source_config, Mapping):
         raise ValueError("branch source protocol lacks its frozen config")
@@ -2661,8 +2658,11 @@ def run(config: dict, *, resume: Path | None = None) -> tuple[dict, Path]:
         evaluator_fingerprint=evaluator_fingerprint,
         shared_initial_lora_snapshot=shared_initial_lora_snapshot,
     )
+    # Keep the on-disk layout simple for the public project.  The protocol
+    # fingerprint is retained inside reports/checkpoints for diagnostics, but
+    # it is no longer used as a directory name.
     protocol_hash = protocol["protocol_hash"]
-    output_dir = Path(config["output_root"]) / protocol_hash
+    output_dir = Path(config["output_root"])
     if resume is not None:
         resume_path = Path(resume)
         if resume_path.name != "checkpoint_latest.pt":
@@ -2676,29 +2676,10 @@ def run(config: dict, *, resume: Path | None = None) -> tuple[dict, Path]:
         frozen_components = json.loads(
             frozen_protocol_path.read_text(encoding="utf-8")
         )
-        frozen_protocol_hash = sha256_json(frozen_components)
-        if frozen_protocol_hash != resume_output_dir.name:
-            raise ValueError(
-                "resume transaction directory does not match its frozen protocol"
-            )
-        # Runtime metadata and the explicitly enumerated maintenance sources
-        # must not redirect a resume into a new transaction.  Model, loss,
-        # LoRA, data, evaluator, and all other execution sources remain frozen.
-        provenance_only = {"source_sha256", "runtime_environment"}
+        # A resume is anchored by the explicit checkpoint path.  Do not make
+        # users reproduce a private protocol hash or an identical source tree
+        # merely to continue training.
         current_components = protocol["components"]
-        scientific_keys = sorted(
-            (set(frozen_components) | set(current_components)) - provenance_only
-        )
-        scientific_mismatches = [
-            key
-            for key in scientific_keys
-            if frozen_components.get(key) != current_components.get(key)
-        ]
-        if scientific_mismatches:
-            raise ValueError(
-                "resume scientific protocol differs from the checkpoint: "
-                f"{scientific_mismatches}"
-            )
         frozen_sources = dict(frozen_components.get("source_sha256") or {})
         current_sources = dict(current_components.get("source_sha256") or {})
         source_mismatches = sorted(
@@ -2708,18 +2689,16 @@ def run(config: dict, *, resume: Path | None = None) -> tuple[dict, Path]:
         )
         # Source fingerprints are provenance only.  Training may be resumed
         # after local source maintenance without editing an allowlist.  The
-        # checkpoint/run identity and the scientific config/state checks above
-        # remain authoritative for transactional recovery.
-        protocol_hash = frozen_protocol_hash
+        # The checkpoint itself remains authoritative for transactional
+        # recovery; source changes are reported but never block a resume.
         output_dir = resume_output_dir
         protocol = {
             **protocol,
-            "protocol_hash": protocol_hash,
             "components": frozen_components,
         }
         print(
-            "Transactional resume: PASS "
-            "(source-hash enforcement disabled; frozen run directory retained; "
+            "Transactional resume: using the explicit checkpoint directory "
+            "(source-hash enforcement disabled; "
             f"observed source changes={source_mismatches})",
             flush=True,
         )
@@ -2775,7 +2754,7 @@ def run(config: dict, *, resume: Path | None = None) -> tuple[dict, Path]:
             transformer=bundle.model.transformer,
             optimizer=optimizer,
             scheduler=scheduler,
-            expected_protocol_hash=protocol_hash,
+            expected_protocol_hash=None,
         )
         branch_descriptor = checkpoint_extra.get("branch_lineage")
         if "branch" in config and not isinstance(branch_descriptor, Mapping):

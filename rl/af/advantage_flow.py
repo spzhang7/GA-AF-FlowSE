@@ -620,12 +620,15 @@ def load_training_checkpoint(
     transformer: torch.nn.Module,
     optimizer: torch.optim.Optimizer,
     scheduler,
-    expected_protocol_hash: str,
+    expected_protocol_hash: str | None = None,
 ) -> tuple[int, AdapterState, dict]:
     payload = torch.load(Path(path), map_location="cpu", weights_only=False)
     if payload.get("schema_version") != 1:
         raise ValueError("unsupported speech AdvantageFlow checkpoint schema")
-    if payload.get("protocol_hash") != expected_protocol_hash:
+    if (
+        expected_protocol_hash is not None
+        and payload.get("protocol_hash") != expected_protocol_hash
+    ):
         raise ValueError("checkpoint protocol hash does not match active run")
     load_lora(transformer, payload["current_lora"])
     optimizer.load_state_dict(payload["optimizer"])

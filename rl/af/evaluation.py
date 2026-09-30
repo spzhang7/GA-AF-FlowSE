@@ -104,10 +104,17 @@ def _load_checkpoint(run_dir: Path, step: int) -> tuple[dict, Path, str]:
     path = _checkpoint_path(run_dir, step)
     digest = sha256_file(path)
     payload = torch.load(path, map_location="cpu", weights_only=False)
+    protocol_path = run_dir / "protocol.json"
+    expected_protocol = (
+        sha256_json(json.loads(protocol_path.read_text(encoding="utf-8")))
+        if protocol_path.is_file()
+        else None
+    )
     criteria = {
         "schema": payload.get("schema_version") == 1,
         "step": int(payload.get("completed_step", -1)) == step,
-        "protocol": str(payload.get("protocol_hash", "")) == run_dir.name,
+        "protocol": expected_protocol is None
+        or str(payload.get("protocol_hash", "")) == expected_protocol,
         "current": bool(payload.get("current_lora")),
         "rollout": bool(payload.get("rollout_lora")),
     }
@@ -583,8 +590,6 @@ def run(args: argparse.Namespace) -> tuple[dict, Path]:
 
     training_protocol_path = run_dir / "protocol.json"
     training_protocol = json.loads(training_protocol_path.read_text(encoding="utf-8"))
-    if sha256_json(training_protocol) != run_dir.name:
-        raise ValueError("training protocol hash does not match the run directory")
     if training_protocol.get("config") != config:
         raise ValueError("evaluation config differs from the frozen training config")
     execution_dependencies = verify_execution_dependencies(training_protocol)

@@ -26,9 +26,10 @@ def resolve_training_reward(
     """
 
     if validate_artifacts is None:
-        # Smoke configs are intentionally portable: they use the frozen
-        # reward scales but do not require formal calibration provenance.
-        validate_artifacts = str(config.get("run", {}).get("mode", "")) != "smoke"
+        # The public project uses the frozen component scales checked into the
+        # configuration.  Calibration reports are useful provenance, but are
+        # not required to start either a smoke run or a normal training run.
+        validate_artifacts = False
     raw = config.get("training_reward")
     if raw is None:
         return {

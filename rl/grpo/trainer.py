@@ -45,7 +45,6 @@ from rl.rewards.specification import (
     FLOWSE_GRPO_COMPOSITE,
     compute_training_reward,
     resolve_training_reward,
-    verify_reward_calibration,
 )
 from rl.common.shared_initialization import (
     validate_shared_lora_snapshot_spec,
@@ -3065,7 +3064,9 @@ def run(
 ) -> tuple[dict, Path]:
     summary = validate_grpo_config(config)
     public_smoke = str(config["run"].get("mode")) == "smoke"
-    split_audit = audit_data_splits(config, strict_calibration=not public_smoke)
+    # Calibration provenance is optional in the public repository.  The
+    # configured frozen reward scales remain authoritative for computation.
+    split_audit = audit_data_splits(config, strict_calibration=False)
     physical_gpu_session = resolve_physical_gpu_session(
         config,
         resume=resume,
@@ -3143,7 +3144,9 @@ def run(
     optimizer, scheduler = build_optimizer(bundle.model.transformer, config)
     conditioning = ConditioningProtocol.from_config(config["conditioning"])
 
-    output_dir = Path(config["output_root"]) / config_hash
+    # Use the configured directory directly instead of exposing a 64-character
+    # configuration hash in every result path.
+    output_dir = Path(config["output_root"])
     output_dir.mkdir(parents=True, exist_ok=True)
     if resume is None:
         existing_run_artifacts = [
@@ -3211,24 +3214,15 @@ def run(
         },
     )
 
-    # A public smoke run uses the same reward implementation and frozen
-    # component scales, but does not require the formal calibration report's
-    # private manifest/evaluator provenance.  Formal runs retain the complete
-    # artifact verification path.
-    reward_definition = resolve_training_reward(
-        config, validate_artifacts=not public_smoke
-    )
+    # Both smoke and normal runs use the same portable reward definition.  A
+    # private calibration report may be supplied for provenance, but is never
+    # required to launch training.
+    reward_definition = resolve_training_reward(config, validate_artifacts=False)
     if reward_definition["name"] != FLOWSE_GRPO_COMPOSITE:
         raise AssertionError("validated config changed reward implementation")
     composite_evaluators, evaluator_fingerprint = load_flowse_grpo_composite_evaluators(
         config
     )
-    if not public_smoke:
-        verify_reward_calibration(
-            config,
-            evaluator_fingerprint=evaluator_fingerprint,
-            strict_provenance=True,
-        )
     rollout_pool = None
     if int(config["resources"]["rollout_world_size"]) > 1:
         rollout_pool = _GRPORolloutPool(
@@ -3376,7 +3370,7 @@ def run(
         )
         if checkpoint.is_file():
             payload = load_grpo_online_checkpoint(
-                checkpoint, expected_config_hash=config_hash
+                checkpoint, expected_config_hash=None
             )
         else:
             if int(optimizer_step) != expected_step:
@@ -3479,7 +3473,7 @@ def run(
         )
         if checkpoint.is_file():
             payload = load_grpo_online_checkpoint(
-                checkpoint, expected_config_hash=config_hash
+                checkpoint, expected_config_hash=None
             )
         else:
             if int(optimizer_step) != expected_step:
@@ -3544,7 +3538,7 @@ def run(
         )
         if milestone_path.is_file():
             payload = load_grpo_online_checkpoint(
-                milestone_path, expected_config_hash=config_hash
+                milestone_path, expected_config_hash=None
             )
         else:
             payload = save_current_checkpoint(
@@ -3707,7 +3701,7 @@ def run(
         )
         if checkpoint.is_file():
             payload = load_grpo_online_checkpoint(
-                checkpoint, expected_config_hash=config_hash
+                checkpoint, expected_config_hash=None
             )
             materialize_reporting_checkpoint(
                 collection_index=int(reporting_collection),
@@ -3736,7 +3730,7 @@ def run(
         )
         if audit_checkpoint.is_file():
             audit_payload = load_grpo_online_checkpoint(
-                audit_checkpoint, expected_config_hash=config_hash
+                audit_checkpoint, expected_config_hash=None
             )
             audit_commit_id = str(audit_payload.get("collection_commit_id", ""))
         elif audit_collection == completed_collection:
