@@ -1737,9 +1737,8 @@ def build_training_protocol(
     # Public smoke runs validate the runnable algorithm and data schema, but
     # do not require formal calibration/source-artifact provenance.  Pilot and
     # formal configs keep the complete artifact checks.
-    validate_training_config(
-        config, validate_artifacts=str(config["run"].get("mode")) != "smoke"
-    )
+    validate_artifacts = str(config["run"].get("mode")) != "smoke"
+    validate_training_config(config, validate_artifacts=validate_artifacts)
     root = Path(".").resolve()
     train_manifest_path = Path(config["data"]["train_manifest"])
     eval_manifest_path = Path(config["data"]["evaluation_manifest"])
@@ -2049,5 +2048,4 @@ def build_training_protocol(
         "train_manifest": train_manifest,
         "evaluation_manifest": evaluation_manifest,
     }
-
 
