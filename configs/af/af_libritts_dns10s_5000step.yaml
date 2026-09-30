@@ -1,7 +1,7 @@
 run:
   mode: pilot
-  experiment_kind: libritts_dns_l16_k8_sft20k_base
-  protocol_version: speech_advantageflow_libritts_dns10s_sft20k_l16_k8_5000step_v1
+  experiment_kind: libritts_dns_l16_k8_base
+  protocol_version: speech_advantageflow_libritts_dns10s_l16_k8_5000step_v1
   startup_validation: lightweight
   seed: 260521
   deterministic: true
@@ -13,7 +13,7 @@ run:
 
 flowse_config: configs/flowse/flowse_libritts_sft20k_wotext.yaml
 dnsmos_official_dir: pretrainmodel/DNSMOS-official
-output_root: artifacts/af/speech_advantageflow_libritts_dns10s_sft20k_5000step
+output_root: artifacts/af/speech_advantageflow_libritts_dns10s_5000step
 
 conditioning: {mode: wotext, use_text: false, drop_text: true}
 

@@ -1,6 +1,6 @@
 run:
   mode: secondary
-  name: grpo_libritts_dns10s_sft20k_4gpu_5000update
+  name: grpo_libritts_dns10s_4gpu_5000update
   seed: 260521
   deterministic: true
   collections: 1250
@@ -19,7 +19,7 @@ comparison:
 
 flowse_config: configs/flowse/flowse_libritts_sft20k_wotext.yaml
 dnsmos_official_dir: pretrainmodel/DNSMOS-official
-output_root: artifacts/grpo/grpo_libritts_dns10s_sft20k_4gpu_5000update
+output_root: artifacts/grpo/grpo_libritts_dns10s_4gpu_5000update
 conditioning: {mode: wotext, use_text: false, drop_text: true}
 
 data:

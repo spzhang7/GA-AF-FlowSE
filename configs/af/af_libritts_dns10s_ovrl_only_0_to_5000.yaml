@@ -1,7 +1,7 @@
 run:
   mode: pilot
-  experiment_kind: libritts_dns_gaaf_l16_k8_sft20k_0_to_5000
-  protocol_version: speech_advantageflow_libritts_dns10s_sft20k_0_to_5000_v1
+  experiment_kind: libritts_dns_ovrl_only_l16_k8_0_to_5000
+  protocol_version: speech_advantageflow_libritts_dns10s_ovrl_only_0_to_5000_v1
   startup_validation: lightweight
   seed: 260521
   deterministic: true
@@ -11,11 +11,12 @@ run:
   # Optional: set true only when exact deterministic CUDA kernels are required.
   require_cublas_workspace_config: false
 
-# No branch/resume source is declared: model weights come from the SFT-20k
-# flowse_config, while LoRA, AdamW, EMA, and the GA-AF gate start fresh at step 0.
+# Isolated ablation against GA-AF: start from the identical SFT-20k base and
+# retain every training/sampling/evaluation setting. Only the optimized scalar
+# reward changes to raw DNSMOS OVRL and the GA-AF gradient gate is absent.
 flowse_config: configs/flowse/flowse_libritts_sft20k_wotext.yaml
 dnsmos_official_dir: pretrainmodel/DNSMOS-official
-output_root: artifacts/af/speech_advantageflow_libritts_dns10s_sft20k_0_to_5000
+output_root: artifacts/af/speech_advantageflow_libritts_dns10s_ovrl_only_0_to_5000
 
 conditioning: {mode: wotext, use_text: false, drop_text: true}
 
@@ -34,23 +35,21 @@ cuda_memory_reservation:
   allocation_chunk_gib: 4.0
   require_target: true
 
+# The auxiliary composite is reporting-only. It preserves exactly the same
+# ERes2Net/SpeechBERTScore queries and composite metric accounting as GA-AF, so
+# the ablation differs only in the advantage used for optimization.
 training_reward:
-  name: flowse_grpo_public_composite
-  component_normalization: frozen_std
-  weights: {dnsmos: 0.6, speaker: 1.0, speechbertscore: 1.0}
-  frozen_component_stds: {dnsmos: 0.07032371343108539, speaker: 0.13865593039460408, speechbertscore: 0.09550272361009968}
-  calibration:
-    report_path: runs/calibration/libritts_dns10s_composite/calibration_report.json
-    source_nfe: 10
-    std_ddof: 0
-    dnsmos_divisor: 4.0
-
-gaaf:
-  primary: dnsmos_ovrl
-  auxiliaries: [eres2net_speaker_similarity, speechbertscore]
-  gradient_refresh_interval: 10
-  coefficient_ema_decay: 0.7
-  auxiliary_cap: 0.5
+  name: dnsmos_ovrl_raw
+  auxiliary_composite:
+    name: flowse_grpo_public_composite
+    component_normalization: frozen_std
+    weights: {dnsmos: 0.6, speaker: 1.0, speechbertscore: 1.0}
+    frozen_component_stds: {dnsmos: 0.07032371343108539, speaker: 0.13865593039460408, speechbertscore: 0.09550272361009968}
+    calibration:
+      report_path: runs/calibration/libritts_dns10s_composite/calibration_report.json
+      source_nfe: 10
+      std_ddof: 0
+      dnsmos_divisor: 4.0
 
 composite_reward_evaluators:
   device: cuda
@@ -164,5 +163,3 @@ pilot_decision:
     stoi: -0.005
     pesq_wb: -0.10
     wer: 0.02
-
-

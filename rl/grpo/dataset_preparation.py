@@ -203,7 +203,7 @@ def main() -> None:
         type=Path,
         default=Path(
             "configs/grpo/"
-            "grpo_libritts_dns10s_sft20k_4gpu_5000update.yaml"
+            "grpo_libritts_dns10s_4gpu_5000update.yaml"
         ),
     )
     parser.add_argument(
@@ -219,7 +219,7 @@ def main() -> None:
         type=Path,
         default=Path(
             "configs/grpo/"
-            "grpo_libritts_dns10s_sft20k_4gpu_"
+            "grpo_libritts_dns10s_4gpu_"
             "production_geometry_smoke.frozen.yaml"
         ),
     )

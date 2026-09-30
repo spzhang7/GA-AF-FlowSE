@@ -1,6 +1,6 @@
 run:
   mode: smoke
-  name: grpo_libritts_dns10s_sft20k_4gpu_production_geometry_smoke
+  name: grpo_libritts_dns10s_4gpu_production_geometry_smoke
   seed: 260521
   deterministic: true
   collections: 1
@@ -14,7 +14,7 @@ comparison:
 
 flowse_config: configs/flowse/flowse_libritts_sft20k_wotext.yaml
 dnsmos_official_dir: pretrainmodel/DNSMOS-official
-output_root: artifacts/grpo/grpo_libritts_dns10s_sft20k_4gpu_production_geometry_smoke
+output_root: artifacts/grpo/grpo_libritts_dns10s_4gpu_production_geometry_smoke
 conditioning: {mode: wotext, use_text: false, drop_text: true}
 
 data:

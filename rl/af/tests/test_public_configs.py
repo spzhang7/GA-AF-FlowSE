@@ -12,9 +12,9 @@ def _load(name: str) -> dict:
 
 def test_published_5000_step_templates_use_the_paper_budget() -> None:
     names = (
-        "af_libritts_dns10s_sft20k_5000step.yaml",
-        "gaaf_libritts_dns10s_sft20k_0_to_5000.yaml",
-        "af_libritts_dns10s_sft20k_ovrl_only_0_to_5000.yaml",
+        "af_libritts_dns10s_5000step.yaml",
+        "gaaf_libritts_dns10s_0_to_5000.yaml",
+        "af_libritts_dns10s_ovrl_only_0_to_5000.yaml",
     )
     for name in names:
         config = _load(name)
@@ -30,7 +30,7 @@ def test_published_5000_step_templates_use_the_paper_budget() -> None:
 
 
 def test_published_gaaf_template_declares_the_gradient_gate() -> None:
-    config = _load("gaaf_libritts_dns10s_sft20k_0_to_5000.yaml")
+    config = _load("gaaf_libritts_dns10s_0_to_5000.yaml")
     assert config["gaaf"]["primary"] == "dnsmos_ovrl"
     assert config["gaaf"]["auxiliaries"] == [
         "eres2net_speaker_similarity",
@@ -54,4 +54,3 @@ def _walk_strings(value):
             yield from _walk_strings(item)
     elif isinstance(value, str):
         yield value
-

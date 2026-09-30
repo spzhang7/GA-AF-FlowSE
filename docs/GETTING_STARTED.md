@@ -1,0 +1,144 @@
+# Getting started
+
+This is the shortest supported path from a fresh checkout to a smoke run or a
+full AF, GA-AF, or GRPO training run. Commands below are run from the
+repository root.
+
+## 1. Create the environment
+
+Python 3.10 or newer is required. For a CUDA 12.1 machine, install PyTorch
+first and then the repository dependencies:
+
+```bash
+conda create -n ga-af-flowse python=3.10 -y
+conda activate ga-af-flowse
+python -m pip install torch==2.2.0+cu121 torchaudio==2.2.0+cu121 \
+  --index-url https://download.pytorch.org/whl/cu121
+python -m pip install -r requirements.txt
+```
+
+CPU-only development can use the ordinary PyTorch wheels from
+`requirements.txt`; full training requires a CUDA GPU.
+
+Check the installation before downloading data:
+
+```bash
+python -m pytest -q rl/af/tests rl/grpo/tests
+```
+
+## 2. Download the pretrained models
+
+Follow [pretrainmodel/README.md](../pretrainmodel/README.md) for DNSMOS,
+ERes2Net, and WavLM. Follow [checkpoints/README.md](../checkpoints/README.md)
+for FlowSE and Vocos. The expected local directories are:
+
+```text
+pretrainmodel/DNSMOS-official/
+pretrainmodel/speech_eres2net_sv_zh-cn_16k-common/
+pretrainmodel/wavlm-large/
+checkpoints/flowse/wenetspeech4tts-Premium/best.pt.tar
+checkpoints/flowse/libritts_sft20k/checkpoint_step_020000.pt
+checkpoints/vocos-mel-24khz/pytorch_model.bin
+```
+
+Model weights are not committed to Git. Keep them local or download the
+published release assets into the paths above.
+
+## 3. Prepare LibriTTS/DNS10s data
+
+The training code consumes already paired clean/noisy utterances and JSON
+manifests. It does not redistribute LibriTTS, DNS Challenge noise, or DNS2020
+test audio. Download LibriTTS from [OpenSLR 60](https://www.openslr.org/60/)
+and the DNS Challenge material from the
+[Microsoft DNS-Challenge repository](https://github.com/microsoft/DNS-Challenge),
+then construct the LibriTTS + DNS10s paired set with the same sample rate and
+file naming used by the manifests. DNS2020 evaluation files must remain in a
+separate test split.
+
+The checkout must contain this layout:
+
+```text
+data/libritts_dns10s/audio/clean/
+data/libritts_dns10s/audio/noisy/
+artifacts/af/manifests/libritts_dns10s/
+├── libritts_dns10s_train_exposures.json
+├── libritts_dns10s_validation.json
+├── libritts_dns10s_smoke_train.json
+├── libritts_dns10s_smoke_validation.json
+└── dns2020_official_test_all.json
+```
+
+If the data and manifests live elsewhere, symlink them instead of copying
+many gigabytes:
+
+```bash
+mkdir -p data artifacts/af/manifests
+ln -sfn /path/to/AF_LibriTTS_DNS10s/audio data/libritts_dns10s/audio
+ln -sfn /path/to/libritts_dns10s_manifests \
+  artifacts/af/manifests/libritts_dns10s
+```
+
+The manifests must map utterance IDs to transcript strings, and clean/noisy
+files must be readable at the paths encoded by those IDs. Do not commit the
+audio or manifests if their licenses prohibit redistribution.
+
+The repository currently documents and consumes this prepared paired-data
+layout; it does not silently download or synthesize licensed audio during a
+training command. This keeps a fresh GitHub checkout reproducible without
+embedding machine-specific dataset paths.
+
+## 4. Run a smoke test
+
+Smoke configs use two optimizer steps (or one tiny GRPO collection) and are
+intended to verify the local installation:
+
+```bash
+python scripts/train_af.py --config configs/af/af_smoke.yaml
+python scripts/train_af.py --config configs/af/gaaf_smoke.yaml
+python scripts/train_grpo.py \
+  --config configs/grpo/grpo_libritts_dns10s_4gpu_production_geometry_smoke.yaml
+```
+
+Each run writes directly to the human-readable `output_root` in its YAML; no
+hash-named result directory is created.
+
+## 5. Run the full training configurations
+
+Ordinary AdvantageFlow and GA-AF use the 5000-step LibriTTS/DNS10s configs:
+
+```bash
+python scripts/train_af.py \
+  --config configs/af/af_libritts_dns10s_5000step.yaml
+
+python scripts/train_af.py \
+  --config configs/af/gaaf_libritts_dns10s_0_to_5000.yaml
+```
+
+Controlled GRPO uses four rollout GPUs and 5000 optimizer updates:
+
+```bash
+python scripts/train_grpo.py \
+  --config configs/grpo/grpo_libritts_dns10s_4gpu_5000update.yaml
+```
+
+Set `CUDA_VISIBLE_DEVICES` to the physical GPU order expected by the selected
+configuration. The GRPO YAML currently targets four GPUs; the AF YAMLs use
+four rollout workers as well.
+
+To continue an interrupted run, pass the checkpoint in that run's ordinary
+output directory:
+
+```bash
+python scripts/train_af.py \
+  --config configs/af/gaaf_libritts_dns10s_0_to_5000.yaml \
+  --resume artifacts/af/speech_advantageflow_libritts_dns10s_0_to_5000/checkpoint_latest.pt
+```
+
+GRPO resume uses the same pattern with `scripts/train_grpo.py` and the
+`checkpoint_latest.pt` under its configured `output_root`.
+
+## 6. Evaluate
+
+After training, use the paired-metric and DNSMOS tools under `tools/`. Keep
+the validation and DNS2020 manifests separate from the training manifest;
+the training code checks that the splits do not overlap.

@@ -119,6 +119,10 @@ Run the method-side tests with:
 python -m pytest -q rl/af/tests rl/grpo/tests
 ```
 
+The complete fresh-checkout workflow, including model placement, data layout,
+smoke tests, and full AF/GA-AF/GRPO commands, is in
+[docs/GETTING_STARTED.md](docs/GETTING_STARTED.md).
+
 ## Data and pretrained models
 
 The repository does not redistribute speech datasets, evaluator weights,
@@ -178,16 +182,18 @@ For the paper-scale AF and GA-AF runs:
 
 ```bash
 python scripts/train_af.py \
-  --config configs/af/af_libritts_dns10s_sft20k_5000step.yaml
+  --config configs/af/af_libritts_dns10s_5000step.yaml
 
 python scripts/train_af.py \
-  --config configs/af/gaaf_libritts_dns10s_sft20k_0_to_5000.yaml
+  --config configs/af/gaaf_libritts_dns10s_0_to_5000.yaml
+
+python scripts/train_grpo.py \
+  --config configs/grpo/grpo_libritts_dns10s_4gpu_5000update.yaml
 ```
 
-The controlled GRPO templates are under configs/grpo/. Smoke runs only
-require the runnable public configuration and local data/model paths.
-Formal/pilot configurations additionally preserve the provenance and
-calibration checks used for the paper experiments.
+The controlled GRPO configurations are under `configs/grpo/`. All runs write
+to the ordinary `output_root` shown in their YAML; no hash-named result
+directory is required.
 
 ## Evaluation
 
