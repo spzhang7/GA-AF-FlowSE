@@ -356,10 +356,28 @@ def _reserve_cuda_allocator_memory(
 
 
 def _cuda_peak_memory_report(*, device, role: str) -> dict:
+    if not torch.cuda.is_available():
+        return {
+            "role": role,
+            "device_index": None,
+            "peak_allocated_bytes": 0,
+            "peak_reserved_bytes": 0,
+            "allocated_at_report_bytes": 0,
+            "reserved_at_report_bytes": 0,
+        }
     if isinstance(device, int):
         device_index = int(device)
     else:
         resolved = torch.device(device)
+        if resolved.type != "cuda":
+            return {
+                "role": role,
+                "device_index": None,
+                "peak_allocated_bytes": 0,
+                "peak_reserved_bytes": 0,
+                "allocated_at_report_bytes": 0,
+                "reserved_at_report_bytes": 0,
+            }
         device_index = (
             int(resolved.index)
             if resolved.index is not None
@@ -1322,7 +1340,8 @@ def _rollout_training_batch(
     audit_audio_keys = _audit_audio_keys(
         utterances, step=step, candidates=candidates, config=config
     )
-    torch.cuda.reset_peak_memory_stats(bundle.device)
+    if torch.cuda.is_available() and torch.device(bundle.device).type == "cuda":
+        torch.cuda.reset_peak_memory_stats(bundle.device)
     shard = _rollout_training_shard(
         bundle=bundle,
         rollout_state=rollout_state,
