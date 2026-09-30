@@ -34,7 +34,7 @@ The upper branch illustrates **GRPO**, which introduces stochasticity through an
 - **Forward-process RL:** reward-guided post-training without differentiating through the reverse ODE rollout.
 - **Gradient-aligned multi-reward optimization:** GA-AF combines reward-specific advantages according to induced gradient alignment rather than fixed reward weights.
 - **Unified comparison:** AF, GA-AF, and a controlled FlowSE-GRPO implementation are provided under the same project.
-- **Reproducible pipeline:** public smoke configs, 5000-update templates, dataset utilities, evaluation tools, and unit tests are included.
+- **Reproducible pipeline:** 5000-update training templates, dataset utilities, evaluation tools, and unit tests are included.
 
 ---
 
@@ -49,7 +49,7 @@ The following DNSMOS OVRL results are reported on the DNS2020 evaluation setting
 | FlowSE Base + AF | 3.504 | 3.472 |
 | **FlowSE Base + GA-AF** | **3.616** | **3.614** |
 
-Under the matched **5000-update** comparison on four NVIDIA A800 GPUs:
+Under the matched **5000-update** comparison:
 
 | Method | Post-training Time ↓ |
 |---|---:|
@@ -87,31 +87,24 @@ Run the method-side tests with:
 python -m pytest -q rl/af/tests rl/grpo/tests
 ```
 
-For a complete fresh-checkout walkthrough, including model placement, data layout, smoke tests, and full training commands, see [`docs/GETTING_STARTED.md`](docs/GETTING_STARTED.md).
+For a complete fresh-checkout walkthrough, including model placement, data layout, and full training commands, see [`docs/GETTING_STARTED.md`](docs/GETTING_STARTED.md).
 
 ### Data and Pretrained Models
 
 This repository does not redistribute speech datasets, evaluator weights, FlowSE checkpoints, Vocos weights, or training artifacts.
 
-1. Download LibriTTS and DNS Challenge material under their upstream licenses,
-   then prepare the paired layout described in
+1. Download LibriTTS and the required noise/reverberation data according to
+   their upstream licenses, then prepare the paired layout described in
    [`docs/GETTING_STARTED.md`](docs/GETTING_STARTED.md).
-2. Download FlowSE/SFT and Vocos weights as described in [`checkpoints/README.md`](checkpoints/README.md).
+2. Download FlowSE and Vocos weights according to
+   [`checkpoints/README.md`](checkpoints/README.md) and the upstream
+   [FlowSE repository](https://github.com/honee-w/flowse).
 3. Download DNSMOS, ERes2Net, and WavLM/SpeechBERTScore models as described in [`pretrainmodel/README.md`](pretrainmodel/README.md).
 4. Edit data, model, and output paths in the corresponding YAML configuration.
 
 ### Training
 
-Smoke configurations validate the public code path with a small budget:
-
-```bash
-python scripts/train_af.py --config configs/af/af_smoke.yaml
-python scripts/train_af.py --config configs/af/gaaf_smoke.yaml
-python scripts/train_grpo.py \
-  --config configs/grpo/grpo_libritts_dns10s_4gpu_production_geometry_smoke.yaml
-```
-
-Paper-scale AF, GA-AF, and GRPO runs:
+Formal AF, GA-AF, and GRPO training runs:
 
 ```bash
 # AdvantageFlow

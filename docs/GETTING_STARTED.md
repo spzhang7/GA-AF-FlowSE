@@ -1,8 +1,7 @@
 # Getting started
 
-This is the shortest supported path from a fresh checkout to a smoke run or a
-full AF, GA-AF, or GRPO training run. Commands below are run from the
-repository root.
+This is the shortest supported path from a fresh checkout to a full AF,
+GA-AF, or GRPO training run. Commands below are run from the repository root.
 
 ## 1. Create the environment
 
@@ -63,8 +62,6 @@ data/libritts_dns10s/audio/noisy/
 artifacts/af/manifests/libritts_dns10s/
 ├── libritts_dns10s_train_exposures.json
 ├── libritts_dns10s_validation.json
-├── libritts_dns10s_smoke_train.json
-├── libritts_dns10s_smoke_validation.json
 └── dns2020_official_test_all.json
 ```
 
@@ -87,22 +84,7 @@ layout; it does not silently download or synthesize licensed audio during a
 training command. This keeps a fresh GitHub checkout reproducible without
 embedding machine-specific dataset paths.
 
-## 4. Run a smoke test
-
-Smoke configs use two optimizer steps (or one tiny GRPO collection) and are
-intended to verify the local installation:
-
-```bash
-python scripts/train_af.py --config configs/af/af_smoke.yaml
-python scripts/train_af.py --config configs/af/gaaf_smoke.yaml
-python scripts/train_grpo.py \
-  --config configs/grpo/grpo_libritts_dns10s_4gpu_production_geometry_smoke.yaml
-```
-
-Each run writes directly to the human-readable `output_root` in its YAML; no
-hash-named result directory is created.
-
-## 5. Run the full training configurations
+## 4. Run the formal training configurations
 
 Ordinary AdvantageFlow and GA-AF use the 5000-step LibriTTS/DNS10s configs:
 
@@ -137,7 +119,7 @@ python scripts/train_af.py \
 GRPO resume uses the same pattern with `scripts/train_grpo.py` and the
 `checkpoint_latest.pt` under its configured `output_root`.
 
-## 6. Evaluate
+## 5. Evaluate
 
 After training, use the paired-metric and DNSMOS tools under `tools/`. Keep
 the validation and DNS2020 manifests separate from the training manifest;
