@@ -9,9 +9,9 @@ checkpoints/
 ├── flowse/
 │   ├── wenetspeech4tts-Premium/best.pt.tar
 │   └── libritts_sft20k/checkpoint_step_020000.pt
-├── af/af_libritts_dns10s_step005000.pt
-├── gaaf/gaaf_libritts_dns10s_0_to_5000_step005000.pt
-├── grpo/grpo_voicebank_controlled_latest.pt
+├── af/af_libritts_step005000.pt
+├── gaaf/gaaf_libritts_step005000.pt
+├── grpo/grpo_libritts_step005000.pt
 └── vocos-mel-24khz/pytorch_model.bin
 ```
 
@@ -32,6 +32,28 @@ hf download charactr/vocos-mel-24khz \
   --local-dir checkpoints/vocos-mel-24khz
 ```
 
-The SFT-20k, AF, GA-AF, and GRPO checkpoints are project artifacts.
-When they are published, download the corresponding release asset and place
-it at the path shown above. Do not commit these files to the source repository.
+## Project checkpoints
+
+Download the project checkpoints from
+[`spzhang7/GA-AF-FlowSE`](https://huggingface.co/spzhang7/GA-AF-FlowSE):
+
+```bash
+hf download spzhang7/GA-AF-FlowSE \
+  base_sft20k/flowse_sft20k.pt \
+  af/af_libritts_step005000.pt \
+  gaaf/gaaf_libritts_step005000.pt \
+  grpo/grpo_libritts_step005000.pt \
+  --local-dir checkpoints
+```
+
+The AF, GA-AF, and GRPO files are available for inference or checkpoint
+inspection at the paths shown above. The base checkpoint is named according to
+the path expected by the public training configurations:
+
+```bash
+mkdir -p checkpoints/flowse/libritts_sft20k
+ln -sfn ../../base_sft20k/flowse_sft20k.pt \
+  checkpoints/flowse/libritts_sft20k/checkpoint_step_020000.pt
+```
+
+Do not commit downloaded checkpoint files to the source repository.

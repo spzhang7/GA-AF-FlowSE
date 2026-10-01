@@ -134,15 +134,20 @@ The paper configuration uses deterministic FlowSE Euler sampling at **NFE = 32**
 
 ## Pretrained Checkpoints
 
-Binary checkpoints are distributed separately from the source repository. Project checkpoints will be attached to the GitHub [Releases page](https://github.com/spzhang7/GA-AF-FlowSE/releases). The original FlowSE checkpoint is downloaded from the upstream Hugging Face release as described in [`checkpoints/README.md`](checkpoints/README.md).
+Project checkpoints are published in the Hugging Face repository
+[`spzhang7/GA-AF-FlowSE`](https://huggingface.co/spzhang7/GA-AF-FlowSE). The
+repository contains the following public assets:
 
-| Release asset | Purpose |
-|---|---|
-| `flowse_wenetspeech4tts_premium_best.pt.tar` | Original FlowSE baseline; upstream Hugging Face |
-| `flowse_sft20k_step020000.pt` | 20k-step supervised FlowSE base |
-| `af_libritts_dns10s_step005000.pt` | Ordinary AF checkpoint |
-| `gaaf_libritts_dns10s_0_to_5000_step005000.pt` | GA-AF checkpoint |
-| `grpo_voicebank_controlled_latest.pt` | Controlled GRPO checkpoint |
+```text
+spzhang7/GA-AF-FlowSE
+├── base_sft20k/flowse_sft20k.pt
+├── af/af_libritts_step005000.pt
+├── gaaf/gaaf_libritts_step005000.pt
+└── grpo/grpo_libritts_step005000.pt
+```
+
+The original FlowSE baseline and Vocos weights are downloaded separately as
+described in [`checkpoints/README.md`](checkpoints/README.md).
 
 ---
 
