@@ -43,16 +43,47 @@ checkpoints/vocos-mel-24khz/pytorch_model.bin
 Model weights are not committed to Git. Keep them local or download the
 published release assets into the paths above.
 
-## 3. Prepare LibriTTS/DNS10s data
+## 3. Download and construct LibriTTS/DNS10s data
 
-The training code consumes already paired clean/noisy utterances and JSON
-manifests. It does not redistribute LibriTTS, DNS Challenge noise, or DNS2020
-test audio. Download LibriTTS from [OpenSLR 60](https://www.openslr.org/60/)
-and the DNS Challenge material from the
-[Microsoft DNS-Challenge repository](https://github.com/microsoft/DNS-Challenge),
-then construct the LibriTTS + DNS10s paired set with the same sample rate and
-file naming used by the manifests. DNS2020 evaluation files must remain in a
-separate test split.
+The repository does not redistribute licensed speech, noise, room impulse
+responses, or DNS2020 test audio. Download clean LibriTTS speech from
+[OpenSLR 60](https://www.openslr.org/60/), download DNS Challenge noise from
+the [Microsoft DNS-Challenge repository](https://github.com/microsoft/DNS-Challenge),
+and obtain a licensed room-impulse-response (RIR) set. Keep the three source
+directories separate, for example:
+
+```text
+/datasets/LibriTTS/       # clean speech, recursively organised WAV/FLAC
+/datasets/DNS/noise/      # noise recordings
+/datasets/RIR/            # room impulse responses
+```
+
+Use the supplied [prepare_libritts_dns10s.py](../tools/prepare_libritts_dns10s.py)
+script to construct the paired training corpus. It resamples to 16 kHz,
+convolves each clean utterance with a deterministic RIR, mixes deterministic
+noise at a reproducible SNR, and writes clean/noisy WAV files plus disjoint
+training and validation manifests:
+
+```bash
+python tools/prepare_libritts_dns10s.py \
+  --clean-dir /datasets/LibriTTS \
+  --noise-dir /datasets/DNS/noise \
+  --rir-dir /datasets/RIR \
+  --output-dir data/libritts_dns10s/audio \
+  --manifest-dir artifacts/af/manifests/libritts_dns10s \
+  --seed 260810 \
+  --snr-min-db 0 \
+  --snr-max-db 20 \
+  --validation-fraction 0.1
+```
+
+If you maintain a JSON object mapping generated utterance IDs to transcripts,
+pass it with `--transcripts`. Audio-only (`wotext`) configurations can omit
+this option; the script writes empty transcript strings while preserving the
+required manifest schema. The seed and SNR range are explicit so that a data
+build can be reproduced and audited.
+
+The resulting checkout must contain:
 
 The checkout must contain this layout:
 
@@ -65,8 +96,8 @@ artifacts/af/manifests/libritts_dns10s/
 └── dns2020_official_test_all.json
 ```
 
-If the data and manifests live elsewhere, symlink them instead of copying
-many gigabytes:
+If a prepared paired corpus already exists elsewhere, symlink it instead of
+copying many gigabytes:
 
 ```bash
 mkdir -p data artifacts/af/manifests
@@ -75,14 +106,17 @@ ln -sfn /path/to/libritts_dns10s_manifests \
   artifacts/af/manifests/libritts_dns10s
 ```
 
-The manifests must map utterance IDs to transcript strings, and clean/noisy
-files must be readable at the paths encoded by those IDs. Do not commit the
-audio or manifests if their licenses prohibit redistribution.
+The manifests map utterance IDs to transcript strings, and clean/noisy files
+must be readable at the paths encoded by those IDs. Place the separately
+prepared DNS2020 official-test manifest at
+`artifacts/af/manifests/libritts_dns10s/dns2020_official_test_all.json`; keep
+all official-test audio outside the training split. Do not commit audio or
+manifests if their licenses prohibit redistribution.
 
 The repository currently documents and consumes this prepared paired-data
-layout; it does not silently download or synthesize licensed audio during a
-training command. This keeps a fresh GitHub checkout reproducible without
-embedding machine-specific dataset paths.
+layout; training commands do not silently download data or change the
+dataset. This keeps a fresh GitHub checkout reproducible without embedding
+machine-specific dataset paths.
 
 ## 4. Run the formal training configurations
 

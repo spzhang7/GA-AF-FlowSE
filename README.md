@@ -93,7 +93,9 @@ For a complete fresh-checkout walkthrough, including model placement, data layou
 This repository does not redistribute speech datasets, evaluator weights, FlowSE checkpoints, Vocos weights, or training artifacts.
 
 1. Download LibriTTS and the required noise/reverberation data according to
-   their upstream licenses, then prepare the paired layout described in
+   their upstream licenses, then use
+   [`tools/prepare_libritts_dns10s.py`](tools/prepare_libritts_dns10s.py) to
+   construct the paired layout described in
    [`docs/GETTING_STARTED.md`](docs/GETTING_STARTED.md).
 2. Download FlowSE and Vocos weights according to
    [`checkpoints/README.md`](checkpoints/README.md) and the upstream
