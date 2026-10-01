@@ -4,10 +4,9 @@
 
 ### Forward-Process Reinforcement Learning for Flow-Matching Speech Enhancement
 
-[![CI](https://github.com/spzhang7/GA-AF-FlowSE/actions/workflows/quality.yml/badge.svg)](https://github.com/spzhang7/GA-AF-FlowSE/actions/workflows/quality.yml)
-[![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
+[![Hugging Face](https://img.shields.io/badge/Hugging%20Face-GA--AF--FlowSE-yellow)](https://huggingface.co/spzhang7/GA-AF-FlowSE)
 
-[Getting Started](docs/GETTING_STARTED.md) · [Checkpoints](checkpoints/README.md) · [FlowSE Attribution](docs/FLOWSE_UPSTREAM.md)
+[Getting Started](docs/GETTING_STARTED.md) · [Hugging Face](https://huggingface.co/spzhang7/GA-AF-FlowSE) · [Checkpoints](checkpoints/README.md) · [FlowSE Attribution](docs/FLOWSE_UPSTREAM.md)
 
 </div>
 
